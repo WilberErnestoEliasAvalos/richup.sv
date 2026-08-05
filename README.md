@@ -28,6 +28,13 @@ Decime cuál de estos querés que construyamos primero y seguimos desde aquí.
 
 ## Correrlo en tu computadora
 
+Si ya tenés el runtime local instalado en `.tooling/nodejs`, podés levantar
+todo con un solo comando desde la raíz del proyecto:
+
+```bash
+bash dev.sh
+```
+
 ### 1. Backend
 
 ```bash
