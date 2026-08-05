@@ -13,8 +13,9 @@ function createRoom(roomId, hostId, hostName) {
     ],
     started: false,
     currentPlayerIndex: 0,
-    ownership: {}, // spaceId -> { ownerId, houses }
+    ownership: {}, // spaceId -> { ownerId, houses, mortgaged }
     auction: null,
+    trades: [],
     log: [],
     turnPhase: 'roll', // roll -> action -> end
     lastDice: null,
@@ -313,6 +314,78 @@ function checkBankrupt(room, player, creditorId) {
   return false;
 }
 
+// Validates that both sides of a trade can currently be fulfilled.
+// Returns true if the trade is executable, false otherwise.
+function validateTrade(room, trade) {
+  const from = room.players.find(p => p.id === trade.fromId);
+  const to   = room.players.find(p => p.id === trade.toId);
+  if (!from || !to || from.bankrupt || to.bankrupt) return false;
+
+  // --- Validate OFFER side (from -> to) ---
+  // Cash
+  if (!Number.isFinite(trade.offer.cash) || trade.offer.cash < 0) return false;
+  if (from.cash < trade.offer.cash) return false;
+  // Jail cards
+  if (!Number.isFinite(trade.offer.jailCards) || trade.offer.jailCards < 0) return false;
+  if (from.getOutOfJailCards < trade.offer.jailCards) return false;
+  // Properties offered by 'from'
+  for (const pid of trade.offer.propertyIds) {
+    const own = room.ownership[pid];
+    if (!own || own.ownerId !== trade.fromId) return false; // must own it
+    if (own.houses > 0) return false;                       // no houses allowed
+  }
+
+  // --- Validate REQUEST side (to -> from) ---
+  // Cash
+  if (!Number.isFinite(trade.request.cash) || trade.request.cash < 0) return false;
+  if (to.cash < trade.request.cash) return false;
+  // Jail cards
+  if (!Number.isFinite(trade.request.jailCards) || trade.request.jailCards < 0) return false;
+  if (to.getOutOfJailCards < trade.request.jailCards) return false;
+  // Properties requested from 'to'
+  for (const pid of trade.request.propertyIds) {
+    const own = room.ownership[pid];
+    if (!own || own.ownerId !== trade.toId) return false;
+    if (own.houses > 0) return false;
+  }
+
+  // At least something must be exchanged
+  const offerHasSomething  = trade.offer.cash > 0   || trade.offer.propertyIds.length > 0   || trade.offer.jailCards > 0;
+  const requestHasSomething = trade.request.cash > 0 || trade.request.propertyIds.length > 0 || trade.request.jailCards > 0;
+  if (!offerHasSomething && !requestHasSomething) return false;
+
+  return true;
+}
+
+// Applies a validated trade atomically.
+function executeTrade(room, trade) {
+  const from = room.players.find(p => p.id === trade.fromId);
+  const to   = room.players.find(p => p.id === trade.toId);
+
+  // Swap cash
+  from.cash -= trade.offer.cash;
+  to.cash   += trade.offer.cash;
+  to.cash   -= trade.request.cash;
+  from.cash += trade.request.cash;
+
+  // Swap jail cards
+  from.getOutOfJailCards -= trade.offer.jailCards;
+  to.getOutOfJailCards   += trade.offer.jailCards;
+  to.getOutOfJailCards   -= trade.request.jailCards;
+  from.getOutOfJailCards += trade.request.jailCards;
+
+  // Transfer properties offered by 'from' -> 'to'
+  for (const pid of trade.offer.propertyIds) {
+    if (room.ownership[pid]) room.ownership[pid].ownerId = trade.toId;
+  }
+  // Transfer properties requested from 'to' -> 'from'
+  for (const pid of trade.request.propertyIds) {
+    if (room.ownership[pid]) room.ownership[pid].ownerId = trade.fromId;
+  }
+
+  addLog(room, `${from.name} y ${to.name} cerraron un trato.`);
+}
+
 module.exports = {
   board,
   STARTING_CASH,
@@ -339,4 +412,6 @@ module.exports = {
   canSellHouse,
   payPlayer,
   checkBankrupt,
+  validateTrade,
+  executeTrade,
 };

@@ -14,8 +14,18 @@ export default function App() {
   const [chat, setChat] = useState([]);
   const [chatInput, setChatInput] = useState('');
   const [auctionBid, setAuctionBid] = useState('');
-  const [tab, setTab] = useState('turno'); // turno | jugadores | propiedades | historial | chat
+  const [tab, setTab] = useState('turno'); // turno | jugadores | propiedades | comercio | chat
   const chatEndRef = useRef(null);
+
+  // ---- Trade form state ----
+  const [tradeTarget, setTradeTarget] = useState('');
+  const [offerCash, setOfferCash]     = useState(0);
+  const [offerPropIds, setOfferPropIds] = useState([]);
+  const [offerJail, setOfferJail]     = useState(0);
+  const [reqCash, setReqCash]         = useState(0);
+  const [reqPropIds, setReqPropIds]   = useState([]);
+  const [reqJail, setReqJail]         = useState(0);
+  const [tradeErr, setTradeErr]       = useState('');
 
   useEffect(() => {
     function onRoomState(r) {
@@ -25,11 +35,17 @@ export default function App() {
     function onChat(msg) {
       setChat(prev => [...prev, msg]);
     }
+    function onTradeError({ message }) {
+      setTradeErr(message);
+      setTimeout(() => setTradeErr(''), 4000);
+    }
     socket.on('roomState', onRoomState);
     socket.on('chatMessage', onChat);
+    socket.on('tradeError', onTradeError);
     return () => {
       socket.off('roomState', onRoomState);
       socket.off('chatMessage', onChat);
+      socket.off('tradeError', onTradeError);
     };
   }, []);
 
@@ -256,7 +272,8 @@ export default function App() {
         <nav className="tab-bar">
           <button className={`tab-btn ${tab === 'turno' ? 'active' : ''}`} onClick={() => setTab('turno')}>📜<span>Historial</span></button>
           <button className={`tab-btn ${tab === 'jugadores' ? 'active' : ''}`} onClick={() => setTab('jugadores')}>👥<span>Jugadores</span></button>
-          <button className={`tab-btn ${tab === 'propiedades' ? 'active' : ''}`} onClick={() => setTab('propiedades')}>🏠<span>Propiedades</span></button>
+          <button className={`tab-btn ${tab === 'propiedades' ? 'active' : ''}`} onClick={() => setTab('propiedades')}>🏠<span>Props</span></button>
+          <button className={`tab-btn ${tab === 'comercio' ? 'active' : ''}`} onClick={() => setTab('comercio')}>🤝<span>Comercio</span></button>
           <button className={`tab-btn ${tab === 'chat' ? 'active' : ''}`} onClick={() => setTab('chat')}>💬<span>Chat</span></button>
         </nav>
 
@@ -359,6 +376,185 @@ export default function App() {
               </div>
             </div>
           )}
+
+          {tab === 'comercio' && (() => {
+            const myTrades = (room.trades || []).filter(t => t.fromId === socket.id || t.toId === socket.id);
+            const otherPlayers = room.players.filter(p => p.id !== socket.id && !p.bankrupt);
+            const targetPlayer = otherPlayers.find(p => p.id === tradeTarget) || otherPlayers[0];
+            const effectiveTarget = targetPlayer?.id || '';
+
+            // My props with houses===0 (tradeable)
+            const myTradeableProps = Object.entries(room.ownership)
+              .filter(([, o]) => o.ownerId === socket.id && o.houses === 0)
+              .map(([id]) => board.find(s => s.id === Number(id)))
+              .filter(Boolean);
+
+            // Target's props with houses===0 (tradeable)
+            const targetTradeableProps = effectiveTarget
+              ? Object.entries(room.ownership)
+                  .filter(([, o]) => o.ownerId === effectiveTarget && o.houses === 0)
+                  .map(([id]) => board.find(s => s.id === Number(id)))
+                  .filter(Boolean)
+              : [];
+
+            const myJailCards = me?.getOutOfJailCards ?? 0;
+            const targetJailCards = targetPlayer?.getOutOfJailCards ?? 0;
+
+            function togglePropId(list, setList, id) {
+              setList(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+            }
+
+            function submitTrade() {
+              if (!effectiveTarget) return;
+              socket.emit('proposeTrade', {
+                toPlayerId: effectiveTarget,
+                offer:   { cash: Number(offerCash) || 0, propertyIds: offerPropIds, jailCards: Number(offerJail) || 0 },
+                request: { cash: Number(reqCash)   || 0, propertyIds: reqPropIds,   jailCards: Number(reqJail)   || 0 },
+              });
+              // Reset form
+              setOfferCash(0); setOfferPropIds([]); setOfferJail(0);
+              setReqCash(0);   setReqPropIds([]);   setReqJail(0);
+            }
+
+            return (
+              <div className="trade-panel">
+
+                {/* --- Pending trades --- */}
+                <div className="trade-section-title">Tratos pendientes</div>
+                {myTrades.length === 0 && (
+                  <p className="prop-empty">No hay tratos pendientes.</p>
+                )}
+                {myTrades.map(t => {
+                  const isReceiver = t.toId === socket.id;
+                  const otherName = room.players.find(p => p.id === (isReceiver ? t.fromId : t.toId))?.name ?? '?';
+                  const offerPropNames  = t.offer.propertyIds.map(id => board.find(s => s.id === id)?.name ?? `#${id}`).join(', ');
+                  const reqPropNames    = t.request.propertyIds.map(id => board.find(s => s.id === id)?.name ?? `#${id}`).join(', ');
+                  const offerDesc  = [t.offer.cash   > 0 ? `$${t.offer.cash}` : null,   offerPropNames || null, t.offer.jailCards   > 0 ? `${t.offer.jailCards}🃏` : null].filter(Boolean).join(' + ') || '—';
+                  const reqDesc    = [t.request.cash > 0 ? `$${t.request.cash}` : null, reqPropNames   || null, t.request.jailCards > 0 ? `${t.request.jailCards}🃏` : null].filter(Boolean).join(' + ') || '—';
+                  return (
+                    <div key={t.id} className="trade-card">
+                      <div className="trade-card-header">
+                        <span className="trade-with">{isReceiver ? `De ${otherName}` : `Para ${otherName}`}</span>
+                        <span className="trade-id">#{t.id}</span>
+                      </div>
+                      <div className="trade-sides">
+                        <div className="trade-side">
+                          <span className="trade-side-label">Ofrecen</span>
+                          <span className="trade-side-value">{isReceiver ? offerDesc : reqDesc}</span>
+                        </div>
+                        <div className="trade-arrow">⇄</div>
+                        <div className="trade-side">
+                          <span className="trade-side-label">Piden</span>
+                          <span className="trade-side-value">{isReceiver ? reqDesc : offerDesc}</span>
+                        </div>
+                      </div>
+                      <div className="trade-card-actions">
+                        {isReceiver ? (
+                          <>
+                            <button className="btn btn-primary btn-half"
+                              onClick={() => socket.emit('respondTrade', { tradeId: t.id, accept: true })}>
+                              Aceptar
+                            </button>
+                            <button className="btn btn-secondary btn-half"
+                              onClick={() => socket.emit('respondTrade', { tradeId: t.id, accept: false })}>
+                              Rechazar
+                            </button>
+                          </>
+                        ) : (
+                          <button className="btn btn-secondary"
+                            onClick={() => socket.emit('cancelTrade', { tradeId: t.id })}>
+                            Cancelar trato
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* --- Propose trade --- */}
+                <div className="trade-section-title" style={{ marginTop: 18 }}>Proponer trato</div>
+                {otherPlayers.length === 0 ? (
+                  <p className="prop-empty">No hay otros jugadores activos.</p>
+                ) : (
+                  <>
+                    <label className="trade-label">Con quién</label>
+                    <select
+                      className="input trade-select"
+                      value={tradeTarget || effectiveTarget}
+                      onChange={e => { setTradeTarget(e.target.value); setReqPropIds([]); }}
+                    >
+                      {otherPlayers.map(p => (
+                        <option key={p.id} value={p.id}>{p.name} (${p.cash})</option>
+                      ))}
+                    </select>
+
+                    <div className="trade-cols">
+                      {/* LEFT: what I offer */}
+                      <div className="trade-col">
+                        <div className="trade-col-header">Yo ofrezco</div>
+                        <label className="trade-label">Efectivo</label>
+                        <input type="number" className="input trade-num" min={0} value={offerCash}
+                          onChange={e => setOfferCash(Math.max(0, Number(e.target.value)))} />
+                        {myTradeableProps.length > 0 && (
+                          <>
+                            <label className="trade-label">Propiedades</label>
+                            {myTradeableProps.map(sp => (
+                              <label key={sp.id} className="trade-check-row">
+                                <input type="checkbox"
+                                  checked={offerPropIds.includes(sp.id)}
+                                  onChange={() => togglePropId(offerPropIds, setOfferPropIds, sp.id)} />
+                                {sp.name}
+                              </label>
+                            ))}
+                          </>
+                        )}
+                        {myJailCards > 0 && (
+                          <>
+                            <label className="trade-label">Cartas cárcel (tenés {myJailCards})</label>
+                            <input type="number" className="input trade-num" min={0} max={myJailCards} value={offerJail}
+                              onChange={e => setOfferJail(Math.min(myJailCards, Math.max(0, Number(e.target.value))))} />
+                          </>
+                        )}
+                      </div>
+
+                      {/* RIGHT: what I request */}
+                      <div className="trade-col">
+                        <div className="trade-col-header">Yo pido</div>
+                        <label className="trade-label">Efectivo</label>
+                        <input type="number" className="input trade-num" min={0} value={reqCash}
+                          onChange={e => setReqCash(Math.max(0, Number(e.target.value)))} />
+                        {targetTradeableProps.length > 0 && (
+                          <>
+                            <label className="trade-label">Propiedades</label>
+                            {targetTradeableProps.map(sp => (
+                              <label key={sp.id} className="trade-check-row">
+                                <input type="checkbox"
+                                  checked={reqPropIds.includes(sp.id)}
+                                  onChange={() => togglePropId(reqPropIds, setReqPropIds, sp.id)} />
+                                {sp.name}
+                              </label>
+                            ))}
+                          </>
+                        )}
+                        {targetJailCards > 0 && (
+                          <>
+                            <label className="trade-label">Cartas cárcel ({targetPlayer?.name} tiene {targetJailCards})</label>
+                            <input type="number" className="input trade-num" min={0} max={targetJailCards} value={reqJail}
+                              onChange={e => setReqJail(Math.min(targetJailCards, Math.max(0, Number(e.target.value))))} />
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    {tradeErr && <div className="trade-error">{tradeErr}</div>}
+                    <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={submitTrade}>
+                      Proponer trato
+                    </button>
+                  </>
+                )}
+              </div>
+            );
+          })()}
         </div>
       </div>
     );

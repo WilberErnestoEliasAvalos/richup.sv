@@ -8,7 +8,7 @@ const {
   currentPlayer, advanceTurn, movePlayer, sendToJail, startAuction,
   currentAuctionPlayerId, resolveAuctionIfDone, handleDrawCard,
   ownerOf, calculateRent, canBuildHouse, canSellHouse, payPlayer,
-  checkBankrupt, GO_TO_JAIL_INDEX, JAIL_INDEX,
+  checkBankrupt, validateTrade, executeTrade, GO_TO_JAIL_INDEX, JAIL_INDEX,
 } = require('./gameLogic');
 
 const allowedOrigins = (process.env.CLIENT_ORIGIN || 'http://localhost:5173,http://127.0.0.1:5173')
@@ -336,6 +336,87 @@ io.on('connection', (socket) => {
     own.mortgaged = false;
     player.cash -= cost;
     addLog(room, `${player.name} levantó la hipoteca de ${space.name} pagando $${cost}.`);
+    emitRoom(room.roomId);
+  });
+
+  // ---- TRADE EVENTS ----
+
+  function genTradeId() {
+    return crypto.randomBytes(3).toString('hex').toUpperCase();
+  }
+
+  socket.on('proposeTrade', ({ toPlayerId, offer, request }) => {
+    const room = rooms.get(socket.data.roomId);
+    if (!room || !room.started) return;
+    const from = room.players.find(p => p.id === socket.id);
+    if (!from || from.bankrupt) return;
+    const to = room.players.find(p => p.id === toPlayerId);
+    if (!to || to.bankrupt || to.id === from.id) return;
+
+    // Sanitize inputs
+    const safePids = arr => (Array.isArray(arr) ? arr.map(Number).filter(Number.isFinite) : []);
+    const trade = {
+      id: genTradeId(),
+      fromId: from.id,
+      toId: to.id,
+      offer:   { cash: Number(offer?.cash)   || 0, propertyIds: safePids(offer?.propertyIds),   jailCards: Number(offer?.jailCards)   || 0 },
+      request: { cash: Number(request?.cash) || 0, propertyIds: safePids(request?.propertyIds), jailCards: Number(request?.jailCards) || 0 },
+      status: 'pending',
+    };
+
+    // Validate BEFORE creating — rejects impossible offers immediately (1st call)
+    if (!validateTrade(room, trade)) {
+      socket.emit('tradeError', { message: 'El trato no es válido (fondos o propiedades insuficientes).' });
+      return;
+    }
+
+    room.trades.push(trade);
+    addLog(room, `${from.name} le propuso un trato a ${to.name}.`);
+    emitRoom(room.roomId);
+  });
+
+  socket.on('respondTrade', ({ tradeId, accept }) => {
+    const room = rooms.get(socket.data.roomId);
+    if (!room || !room.started) return;
+    const tradeIndex = room.trades.findIndex(t => t.id === tradeId);
+    if (tradeIndex === -1) return;
+    const trade = room.trades[tradeIndex];
+    // Only the recipient can respond
+    if (trade.toId !== socket.id) return;
+
+    // Remove from list regardless of outcome
+    room.trades.splice(tradeIndex, 1);
+
+    if (accept) {
+      // Re-validate from scratch — protects against stale state (2nd call)
+      if (!validateTrade(room, trade)) {
+        const from = room.players.find(p => p.id === trade.fromId);
+        const to   = room.players.find(p => p.id === trade.toId);
+        addLog(room, `El trato entre ${from?.name ?? '?'} y ${to?.name ?? '?'} ya no era válido y se canceló.`);
+      } else {
+        executeTrade(room, trade);
+      }
+    } else {
+      const from = room.players.find(p => p.id === trade.fromId);
+      const to   = room.players.find(p => p.id === trade.toId);
+      addLog(room, `${to?.name ?? '?'} rechazó el trato de ${from?.name ?? '?'}.`);
+    }
+
+    emitRoom(room.roomId);
+  });
+
+  socket.on('cancelTrade', ({ tradeId }) => {
+    const room = rooms.get(socket.data.roomId);
+    if (!room || !room.started) return;
+    const tradeIndex = room.trades.findIndex(t => t.id === tradeId);
+    if (tradeIndex === -1) return;
+    const trade = room.trades[tradeIndex];
+    // Only the proposer can cancel
+    if (trade.fromId !== socket.id) return;
+    room.trades.splice(tradeIndex, 1);
+    const from = room.players.find(p => p.id === trade.fromId);
+    const to   = room.players.find(p => p.id === trade.toId);
+    addLog(room, `${from?.name ?? '?'} canceló el trato con ${to?.name ?? '?'}.`);
     emitRoom(room.roomId);
   });
 
