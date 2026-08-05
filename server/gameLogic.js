@@ -14,6 +14,7 @@ function createRoom(roomId, hostId, hostName) {
     started: false,
     currentPlayerIndex: 0,
     ownership: {}, // spaceId -> { ownerId, houses }
+    auction: null,
     log: [],
     turnPhase: 'roll', // roll -> action -> end
     lastDice: null,
@@ -84,6 +85,81 @@ function sendToJail(room, player) {
   player.inJail = true;
   player.jailTurns = 0;
   addLog(room, `${player.name} fue enviado a la cárcel.`);
+}
+
+function startAuction(room, space) {
+  const active = activePlayers(room).map(player => player.id);
+  const currentId = currentPlayer(room)?.id;
+  const currentIndex = active.indexOf(currentId);
+  const order = [];
+
+  if (currentIndex !== -1) {
+    for (let offset = 1; offset <= active.length; offset += 1) {
+      order.push(active[(currentIndex + offset) % active.length]);
+    }
+  }
+
+  room.auction = {
+    spaceId: space.id,
+    highestBid: 0,
+    highestBidderId: null,
+    order,
+    turnIndex: 0,
+    bids: {},
+  };
+  room.turnPhase = 'auction';
+  addLog(room, `Se abrió subasta por ${space.name}.`);
+}
+
+function currentAuctionPlayerId(room) {
+  return room.auction?.order?.[room.auction.turnIndex] || null;
+}
+
+function resolveAuctionIfDone(room) {
+  const auction = room.auction;
+  if (!auction) return false;
+
+  const space = board[auction.spaceId];
+  if (!space) {
+    room.auction = null;
+    room.turnPhase = 'end';
+    return true;
+  }
+
+  if (auction.order.length === 0) {
+    addLog(room, `La subasta por ${space.name} terminó sin ganador.`);
+    room.auction = null;
+    room.turnPhase = 'end';
+    return true;
+  }
+
+  if (auction.order.length > 1) return false;
+
+  const solePlayerId = auction.order[0];
+  const soleBid = auction.bids?.[solePlayerId];
+  if (!soleBid) return false;
+
+  const winner = room.players.find(player => player.id === solePlayerId);
+  if (!winner) {
+    addLog(room, `La subasta por ${space.name} terminó sin ganador.`);
+    room.auction = null;
+    room.turnPhase = 'end';
+    return true;
+  }
+
+  if (winner.cash < soleBid) {
+    addLog(room, `${winner.name} no tenía efectivo suficiente para cerrar la subasta de ${space.name}.`);
+    room.auction = null;
+    room.turnPhase = 'end';
+    return true;
+  }
+
+  winner.cash -= soleBid;
+  room.ownership[space.id] = { ownerId: winner.id, houses: 0, mortgaged: false };
+  addLog(room, `${winner.name} ganó la subasta de ${space.name} por $${soleBid}.`);
+  room.auction = null;
+  room.turnPhase = 'end';
+  return true;
 }
 
 function handleDrawCard(room, player, deckType) {
@@ -157,22 +233,83 @@ function calculateRent(room, space) {
   return 0;
 }
 
+function canBuildHouse(room, space, ownerId) {
+  const groupSpaces = board.filter(s => s.group === space.group);
+  // Must own entire group
+  const allOwned = groupSpaces.every(s => room.ownership[s.id] && room.ownership[s.id].ownerId === ownerId);
+  if (!allOwned) return false;
+  // No property in the group can be mortgaged
+  if (groupSpaces.some(s => room.ownership[s.id].mortgaged)) return false;
+  // Even-build: can only build on properties with the minimum house count in the group
+  const houseCounts = groupSpaces.map(s => room.ownership[s.id].houses);
+  const minHouses = Math.min(...houseCounts);
+  const own = room.ownership[space.id];
+  return own.houses <= minHouses;
+}
+
+function canSellHouse(room, space, ownerId) {
+  const own = room.ownership[space.id];
+  if (!own || own.ownerId !== ownerId || own.houses <= 0) return false;
+  const groupSpaces = board.filter(s => s.group === space.group);
+  const houseCounts = groupSpaces
+    .filter(s => room.ownership[s.id] && room.ownership[s.id].ownerId === ownerId)
+    .map(s => room.ownership[s.id].houses);
+  const maxHouses = Math.max(...houseCounts);
+  return own.houses >= maxHouses;
+}
+
 function payPlayer(room, fromPlayer, toPlayerId, amount) {
   fromPlayer.cash -= amount;
   const to = room.players.find(p => p.id === toPlayerId);
   if (to) to.cash += amount;
 }
 
-function checkBankrupt(room, player) {
+function checkBankrupt(room, player, creditorId) {
+  if (player.cash >= 0) return false;
+
+  // Step 1: auto-sell ALL houses/hotels to the bank (houseCost/2 each)
+  let soldAny = true;
+  while (player.cash < 0 && soldAny) {
+    soldAny = false;
+    const myPropIds = Object.keys(room.ownership).filter(id => room.ownership[id].ownerId === player.id);
+    for (const id of myPropIds) {
+      const own = room.ownership[id];
+      if (own.houses > 0) {
+        const sp = board[Number(id)];
+        const refund = Math.floor(sp.houseCost / 2);
+        player.cash += refund;
+        own.houses -= 1;
+        soldAny = true;
+        addLog(room, `${player.name} vendió una casa de ${sp.name} por $${refund} (auto-venta).`);
+        if (player.cash >= 0) break;
+      }
+    }
+  }
+
+  // Step 2: if still bankrupt after selling all houses
   if (player.cash < 0) {
+    const creditor = creditorId ? room.players.find(p => p.id === creditorId) : null;
+    if (creditorId && creditor) {
+      // Transfer all properties to creditor (keep mortgaged state, houses already 0)
+      Object.keys(room.ownership).forEach(id => {
+        if (room.ownership[id].ownerId === player.id) {
+          room.ownership[id].ownerId = creditorId;
+        }
+      });
+      addLog(room, `${player.name} quebró. Sus propiedades pasan a ${creditor.name}.`);
+    } else {
+      // Release properties to bank
+      Object.keys(room.ownership).forEach(id => {
+        if (room.ownership[id].ownerId === player.id) delete room.ownership[id];
+      });
+      addLog(room, `${player.name} quebró y sus propiedades volvieron al banco.`);
+    }
     player.bankrupt = true;
-    // liberar propiedades
-    Object.keys(room.ownership).forEach(id => {
-      if (room.ownership[id].ownerId === player.id) delete room.ownership[id];
-    });
-    addLog(room, `${player.name} quebró y salió del juego.`);
+    player.cash = 0;
     return true;
   }
+
+  // Step 3: saved by selling houses
   return false;
 }
 
@@ -191,10 +328,15 @@ module.exports = {
   advanceTurn,
   movePlayer,
   sendToJail,
+  startAuction,
+  currentAuctionPlayerId,
+  resolveAuctionIfDone,
   handleDrawCard,
   ownerOf,
   countGroupOwned,
   calculateRent,
+  canBuildHouse,
+  canSellHouse,
   payPlayer,
   checkBankrupt,
 };

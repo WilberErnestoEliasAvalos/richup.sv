@@ -13,6 +13,7 @@ export default function App() {
   const [error, setError] = useState('');
   const [chat, setChat] = useState([]);
   const [chatInput, setChatInput] = useState('');
+  const [auctionBid, setAuctionBid] = useState('');
   const [tab, setTab] = useState('turno'); // turno | jugadores | propiedades | historial | chat
   const chatEndRef = useRef(null);
 
@@ -35,6 +36,18 @@ export default function App() {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chat, tab]);
+
+  useEffect(() => {
+    if (room?.turnPhase === 'auction' && room.auction) {
+      const turnPlayerId = room.auction.order[room.auction.turnIndex];
+      if (turnPlayerId === socket.id) {
+        const minimumBid = room.auction.highestBid > 0 ? room.auction.highestBid + 10 : 10;
+        setAuctionBid(String(minimumBid));
+      }
+      return;
+    }
+    setAuctionBid('');
+  }, [room?.turnPhase, room?.auction?.spaceId, room?.auction?.turnIndex, room?.auction?.highestBid]);
 
   function createRoom() {
     if (!name.trim()) return setError('Poné tu nombre primero.');
@@ -144,6 +157,22 @@ export default function App() {
     const own = room.ownership[currentSpace.id];
     const canBuy = isMyTurn && room.turnPhase === 'action' && currentSpace.price && !own;
     const myProps = Object.entries(room.ownership).filter(([, o]) => o.ownerId === me?.id);
+    const auction = room.turnPhase === 'auction' ? room.auction : null;
+    const auctionSpace = auction ? board[auction.spaceId] : null;
+    const auctionTurnPlayer = auction ? room.players.find(p => p.id === auction.order[auction.turnIndex]) : null;
+    const auctionTurnColorIndex = auctionTurnPlayer?.colorIndex ?? current?.colorIndex ?? 0;
+    const isAuctionMyTurn = auctionTurnPlayer?.id === socket.id;
+    const auctionMinBid = auction ? (auction.highestBid > 0 ? auction.highestBid + 10 : 10) : 10;
+
+    function submitAuctionBid() {
+      const parsedBid = Number(auctionBid);
+      if (!Number.isFinite(parsedBid)) return;
+      socket.emit('placeBid', { amount: parsedBid });
+    }
+
+    function raiseAuctionBid() {
+      setAuctionBid(String(auctionMinBid));
+    }
 
     return (
       <div className="app-shell game-shell">
@@ -158,28 +187,70 @@ export default function App() {
           <div className="action-bar-turn">
             <span
               className="token-mini"
-              style={{ background: PLAYER_COLORS[current?.colorIndex % PLAYER_COLORS.length] }}
+              style={{ background: PLAYER_COLORS[auctionTurnColorIndex % PLAYER_COLORS.length] }}
             />
-            <span className="action-bar-name">{isMyTurn ? 'Tu turno' : `Turno de ${current?.name}`}</span>
-            {room.lastDice && (
-              <span className="dice-mini">🎲 {room.lastDice[0]}+{room.lastDice[1]}</span>
+            {auction ? (
+              <>
+                <span className="action-bar-name">{isAuctionMyTurn ? 'Tu turno en subasta' : `Subasta de ${auctionSpace?.name || 'casilla'}`}</span>
+                <span className="dice-mini">{auction.highestBid > 0 ? `Puja: $${auction.highestBid}` : 'Sin pujas'}</span>
+              </>
+            ) : (
+              <>
+                <span className="action-bar-name">{isMyTurn ? 'Tu turno' : `Turno de ${current?.name}`}</span>
+                {room.lastDice && (
+                  <span className="dice-mini">🎲 {room.lastDice[0]}+{room.lastDice[1]}</span>
+                )}
+              </>
             )}
           </div>
 
-          {isMyTurn && room.turnPhase === 'roll' && (
-            <button className="btn btn-primary btn-big" onClick={() => socket.emit('rollDice')}>Tirar dados</button>
+          {auction ? (
+            isAuctionMyTurn ? (
+              <>
+                <div className="auction-summary">
+                  <span>{auctionSpace?.name}</span>
+                  <span>{auction.highestBid > 0 ? `Mínimo $${auctionMinBid}` : 'Arranca en $10'}</span>
+                </div>
+                <div className="auction-input-row">
+                  <input
+                    className="input auction-input"
+                    type="number"
+                    min={auctionMinBid}
+                    step="10"
+                    value={auctionBid}
+                    onChange={(e) => setAuctionBid(e.target.value)}
+                    inputMode="numeric"
+                  />
+                  <button className="btn-mini auction-plus-btn" onClick={raiseAuctionBid}>+$10</button>
+                </div>
+                <div className="action-buy-row">
+                  <button className="btn btn-primary btn-half" onClick={submitAuctionBid}>Pujar</button>
+                  <button className="btn btn-secondary btn-half" onClick={() => socket.emit('passAuction')}>Pasar</button>
+                </div>
+              </>
+            ) : (
+              <p className="waiting-msg-inline">
+                Pujando a {auctionTurnPlayer?.name || 'otro jugador'}… {auction.highestBid > 0 ? `Puja actual $${auction.highestBid}` : 'Sin pujas'}
+              </p>
+            )
+          ) : (
+            <>
+              {isMyTurn && room.turnPhase === 'roll' && (
+                <button className="btn btn-primary btn-big" onClick={() => socket.emit('rollDice')}>Tirar dados</button>
+              )}
+              {isMyTurn && room.turnPhase === 'action' && canBuy && (
+                <div className="action-buy-row">
+                  <span className="action-buy-text">{currentSpace.name} · ${currentSpace.price}</span>
+                  <button className="btn btn-primary btn-half" onClick={() => socket.emit('buyProperty')}>Comprar</button>
+                  <button className="btn btn-secondary btn-half" onClick={() => socket.emit('skipBuy')}>Pasar</button>
+                </div>
+              )}
+              {isMyTurn && room.turnPhase === 'end' && (
+                <button className="btn btn-primary btn-big" onClick={() => socket.emit('endTurn')}>Terminar turno</button>
+              )}
+              {!isMyTurn && <p className="waiting-msg-inline">Esperando a {current?.name}…</p>}
+            </>
           )}
-          {isMyTurn && room.turnPhase === 'action' && canBuy && (
-            <div className="action-buy-row">
-              <span className="action-buy-text">{currentSpace.name} · ${currentSpace.price}</span>
-              <button className="btn btn-primary btn-half" onClick={() => socket.emit('buyProperty')}>Comprar</button>
-              <button className="btn btn-secondary btn-half" onClick={() => socket.emit('skipBuy')}>Pasar</button>
-            </div>
-          )}
-          {isMyTurn && room.turnPhase === 'end' && (
-            <button className="btn btn-primary btn-big" onClick={() => socket.emit('endTurn')}>Terminar turno</button>
-          )}
-          {!isMyTurn && <p className="waiting-msg-inline">Esperando a {current?.name}…</p>}
         </div>
 
         <nav className="tab-bar">
@@ -217,17 +288,51 @@ export default function App() {
               {myProps.map(([spaceId, o]) => {
                 const sp = board.find(s => s.id === Number(spaceId));
                 return (
-                  <li key={spaceId} className="prop-list-item">
-                    <span>{sp.name}</span>
-                    {sp.type === 'property' && (
-                      <button
-                        className="btn-mini"
-                        disabled={!isMyTurn || o.houses >= 5}
-                        onClick={() => socket.emit('buildHouse', { spaceId: sp.id })}
-                      >
-                        🏠 ${sp.houseCost}
-                      </button>
-                    )}
+                  <li key={spaceId} className={`prop-list-item ${o.mortgaged ? 'prop-mortgaged' : ''}`}>
+                    <span className="prop-label">
+                      {sp.name}
+                      {o.mortgaged && <span className="mortgage-tag">Hipotecada</span>}
+                      {sp.type === 'property' && o.houses > 0 && <span className="house-count">🏠×{o.houses}</span>}
+                    </span>
+                    <span className="prop-actions">
+                      {sp.type === 'property' && !o.mortgaged && (
+                        <button
+                          className="btn-mini"
+                          disabled={!isMyTurn || o.houses >= 5}
+                          onClick={() => socket.emit('buildHouse', { spaceId: sp.id })}
+                        >
+                          🏠 ${sp.houseCost}
+                        </button>
+                      )}
+                      {sp.type === 'property' && o.houses > 0 && (
+                        <button
+                          className="btn-mini"
+                          disabled={!isMyTurn}
+                          onClick={() => socket.emit('sellHouse', { spaceId: sp.id })}
+                        >
+                          🔻 ${Math.floor(sp.houseCost / 2)}
+                        </button>
+                      )}
+                      {o.mortgaged ? (
+                        <button
+                          className="btn-mini"
+                          disabled={!isMyTurn}
+                          onClick={() => socket.emit('unmortgageProperty', { spaceId: sp.id })}
+                        >
+                          Levantar (${Math.ceil(sp.price / 2 * 1.10)})
+                        </button>
+                      ) : (
+                        sp.price && o.houses === 0 && (
+                          <button
+                            className="btn-mini"
+                            disabled={!isMyTurn}
+                            onClick={() => socket.emit('mortgageProperty', { spaceId: sp.id })}
+                          >
+                            Hipotecar
+                          </button>
+                        )
+                      )}
+                    </span>
                   </li>
                 );
               })}

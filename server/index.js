@@ -5,8 +5,10 @@ const crypto = require('crypto');
 const { Server } = require('socket.io');
 const {
   board, createRoom, newPlayer, addLog, rollDice, activePlayers,
-  currentPlayer, advanceTurn, movePlayer, sendToJail, handleDrawCard,
-  ownerOf, calculateRent, payPlayer, checkBankrupt, GO_TO_JAIL_INDEX, JAIL_INDEX,
+  currentPlayer, advanceTurn, movePlayer, sendToJail, startAuction,
+  currentAuctionPlayerId, resolveAuctionIfDone, handleDrawCard,
+  ownerOf, calculateRent, canBuildHouse, canSellHouse, payPlayer,
+  checkBankrupt, GO_TO_JAIL_INDEX, JAIL_INDEX,
 } = require('./gameLogic');
 
 const allowedOrigins = (process.env.CLIENT_ORIGIN || 'http://localhost:5173,http://127.0.0.1:5173')
@@ -150,13 +152,13 @@ io.on('connection', (socket) => {
       player.cash -= space.amount;
       room.freeParkingPot += space.amount;
       addLog(room, `${player.name} pagó $${space.amount} de impuestos.`);
-      checkBankrupt(room, player);
+      checkBankrupt(room, player, null);
       room.turnPhase = 'end';
       return;
     }
     if (space.type === 'chance' || space.type === 'chest') {
       handleDrawCard(room, player, space.type);
-      checkBankrupt(room, player);
+      checkBankrupt(room, player, null);
       room.turnPhase = 'end';
       return;
     }
@@ -177,11 +179,15 @@ io.on('connection', (socket) => {
         room.turnPhase = 'end';
         return;
       }
+      if (own.mortgaged) {
+        room.turnPhase = 'end';
+        return;
+      }
       let rent = calculateRent(room, space);
       if (space.type === 'utility') rent = rent * diceSum;
       payPlayer(room, player, own.ownerId, rent);
       addLog(room, `${player.name} pagó $${rent} de renta a ${room.players.find(p => p.id === own.ownerId)?.name}.`);
-      checkBankrupt(room, player);
+      checkBankrupt(room, player, own.ownerId);
       room.turnPhase = 'end';
       return;
     }
@@ -197,7 +203,7 @@ io.on('connection', (socket) => {
     if (!space.price || ownerOf(room, space.id)) return;
     if (player.cash < space.price) return;
     player.cash -= space.price;
-    room.ownership[space.id] = { ownerId: player.id, houses: 0 };
+    room.ownership[space.id] = { ownerId: player.id, houses: 0, mortgaged: false };
     addLog(room, `${player.name} compró ${space.name} por $${space.price}.`);
     room.turnPhase = 'end';
     emitRoom(room.roomId);
@@ -208,8 +214,63 @@ io.on('connection', (socket) => {
     if (!room || !room.started) return;
     const player = currentPlayer(room);
     if (player.id !== socket.id || room.turnPhase !== 'action') return;
-    addLog(room, `${player.name} decidió no comprar ${board[player.position].name}.`);
-    room.turnPhase = 'end';
+    const space = board[player.position];
+    addLog(room, `${player.name} decidió no comprar ${space.name}.`);
+    startAuction(room, space);
+    emitRoom(room.roomId);
+  });
+
+  socket.on('placeBid', ({ amount }) => {
+    const room = rooms.get(socket.data.roomId);
+    if (!room || !room.started || room.turnPhase !== 'auction' || !room.auction) return;
+    if (socket.id !== currentAuctionPlayerId(room)) return;
+
+    const bidder = room.players.find(player => player.id === socket.id);
+    if (!bidder || bidder.bankrupt) return;
+
+    const bidAmount = Number(amount);
+    if (!Number.isFinite(bidAmount)) return;
+
+    const minimumBid = room.auction.highestBid > 0 ? room.auction.highestBid + 10 : 10;
+    if (bidAmount < minimumBid) return;
+    if (bidAmount > bidder.cash) return;
+
+    room.auction.highestBid = bidAmount;
+    room.auction.highestBidderId = bidder.id;
+    room.auction.bids[bidder.id] = bidAmount;
+
+    const space = board[room.auction.spaceId];
+    addLog(room, `${bidder.name} pujó $${bidAmount} por ${space.name}.`);
+
+    if (!resolveAuctionIfDone(room) && room.auction) {
+      room.auction.turnIndex = (room.auction.turnIndex + 1) % room.auction.order.length;
+    }
+
+    emitRoom(room.roomId);
+  });
+
+  socket.on('passAuction', () => {
+    const room = rooms.get(socket.data.roomId);
+    if (!room || !room.started || room.turnPhase !== 'auction' || !room.auction) return;
+    if (socket.id !== currentAuctionPlayerId(room)) return;
+
+    const passerIndex = room.auction.order.indexOf(socket.id);
+    if (passerIndex === -1) return;
+
+    const passer = room.players.find(player => player.id === socket.id);
+    if (!passer || passer.bankrupt) return;
+
+    const space = board[room.auction.spaceId];
+    addLog(room, `${passer.name} pasó en la subasta de ${space.name}.`);
+
+    room.auction.order.splice(passerIndex, 1);
+    if (room.auction.order.length > 0) {
+      if (room.auction.turnIndex >= room.auction.order.length) {
+        room.auction.turnIndex = 0;
+      }
+    }
+
+    resolveAuctionIfDone(room);
     emitRoom(room.roomId);
   });
 
@@ -222,10 +283,59 @@ io.on('connection', (socket) => {
     const own = ownerOf(room, spaceId);
     if (!space || space.type !== 'property' || !own || own.ownerId !== player.id) return;
     if (own.houses >= 5) return; // 5 = hotel
+    if (!canBuildHouse(room, space, player.id)) return;
     if (player.cash < space.houseCost) return;
     player.cash -= space.houseCost;
     own.houses += 1;
     addLog(room, `${player.name} construyó en ${space.name} (nivel ${own.houses}).`);
+    emitRoom(room.roomId);
+  });
+
+  socket.on('sellHouse', ({ spaceId }) => {
+    const room = rooms.get(socket.data.roomId);
+    if (!room || !room.started) return;
+    const player = currentPlayer(room);
+    if (player.id !== socket.id) return;
+    const space = board.find(s => s.id === spaceId);
+    const own = ownerOf(room, spaceId);
+    if (!space || space.type !== 'property' || !own || own.ownerId !== player.id) return;
+    if (!canSellHouse(room, space, player.id)) return;
+    own.houses -= 1;
+    player.cash += Math.floor(space.houseCost / 2);
+    addLog(room, `${player.name} vendió una casa de ${space.name} por $${Math.floor(space.houseCost / 2)}.`);
+    emitRoom(room.roomId);
+  });
+
+  socket.on('mortgageProperty', ({ spaceId }) => {
+    const room = rooms.get(socket.data.roomId);
+    if (!room || !room.started) return;
+    const player = currentPlayer(room);
+    if (player.id !== socket.id) return;
+    const space = board.find(s => s.id === spaceId);
+    const own = ownerOf(room, spaceId);
+    if (!space || !own || own.ownerId !== player.id) return;
+    if (own.houses > 0) return;
+    if (own.mortgaged) return;
+    own.mortgaged = true;
+    player.cash += Math.floor(space.price / 2);
+    addLog(room, `${player.name} hipotecó ${space.name} por $${Math.floor(space.price / 2)}.`);
+    emitRoom(room.roomId);
+  });
+
+  socket.on('unmortgageProperty', ({ spaceId }) => {
+    const room = rooms.get(socket.data.roomId);
+    if (!room || !room.started) return;
+    const player = currentPlayer(room);
+    if (player.id !== socket.id) return;
+    const space = board.find(s => s.id === spaceId);
+    const own = ownerOf(room, spaceId);
+    if (!space || !own || own.ownerId !== player.id) return;
+    if (!own.mortgaged) return;
+    const cost = Math.ceil(space.price / 2 * 1.10);
+    if (player.cash < cost) return;
+    own.mortgaged = false;
+    player.cash -= cost;
+    addLog(room, `${player.name} levantó la hipoteca de ${space.name} pagando $${cost}.`);
     emitRoom(room.roomId);
   });
 

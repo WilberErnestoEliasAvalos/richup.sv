@@ -233,9 +233,8 @@ body {
   font-weight: 700;
   line-height: 1.05;
   letter-spacing: 0.02em;
+  text-transform: uppercase;
 }
-
-.space-price { font-size: 7.5px; color: var(--coffee); font-weight: 600; }
 .space-icon { font-size: 11px; line-height: 1; }
 .space { cursor: pointer; }
 
@@ -327,6 +326,40 @@ body {
 
 .action-bar-name { flex: 1; }
 .dice-mini { font-size: 13px; color: var(--coffee); font-weight: 700; }
+
+.auction-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--coffee);
+  font-weight: 600;
+}
+
+.auction-summary span:last-child {
+  color: var(--anil);
+}
+
+.auction-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.auction-input {
+  margin-bottom: 0;
+  flex: 1;
+  min-width: 0;
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
+.auction-plus-btn {
+  flex-shrink: 0;
+  min-width: 72px;
+  background: var(--gold);
+  color: var(--ink);
+}
 
 .action-buy-row {
   display: flex;
@@ -468,3 +501,33 @@ background: rgba(11,42,91,0.08);
 }
 
 .sheet-close { margin: 14px 18px 0; width: calc(100% - 36px); }
+
+/* Hipoteca visual */
+.prop-mortgaged { opacity: 0.55; }
+.mortgage-tag {
+  display: inline-block;
+  font-size: 10px;
+  background: var(--coffee);
+  color: var(--paper-light);
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.house-count {
+  font-size: 11px;
+  margin-left: 4px;
+  color: var(--coffee);
+}
+.prop-label {
+  flex: 1;
+  min-width: 0;
+}
+.prop-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
