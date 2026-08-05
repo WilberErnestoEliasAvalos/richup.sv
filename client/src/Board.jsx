@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { board, GROUPS } from './boardData';
 
 // Mapea índice 0-39 a posición en grid 11x11 (perímetro), como un Monopoly clásico.
@@ -29,8 +29,86 @@ function SpaceIcon({ space }) {
   return null;
 }
 
+function rentLine(space, i) {
+  if (i === 0) return ['Renta base', `$${space.rent[0]}`];
+  if (i === 5) return ['Con hotel', `$${space.rent[5]}`];
+  return [`Con ${i} casa${i > 1 ? 's' : ''}`, `$${space.rent[i]}`];
+}
+
+function DetailSheet({ space, room, onClose }) {
+  if (!space) return null;
+  const own = room?.ownership?.[space.id];
+  const ownerPlayer = own ? room.players.find(p => p.id === own.ownerId) : null;
+  const groupInfo = space.group ? GROUPS[space.group] : null;
+
+  return (
+    <div className="sheet-backdrop" onClick={onClose}>
+      <div className="sheet-card" onClick={(e) => e.stopPropagation()}>
+        <div className="sheet-handle" />
+        {groupInfo && <div className="sheet-color-bar" style={{ background: groupInfo.color }} />}
+        <div className="sheet-body">
+          <h3 className="sheet-title">{space.name}</h3>
+          {groupInfo && <p className="sheet-group">{groupInfo.name}</p>}
+
+          {space.price && (
+            <p className="sheet-row"><span>Precio</span><span>${space.price}</span></p>
+          )}
+
+          {space.type === 'property' && space.rent && space.rent.map((_, i) => {
+            const [label, value] = rentLine(space, i);
+            return <p className="sheet-row" key={i}><span>{label}</span><span>{value}</span></p>;
+          })}
+
+          {space.type === 'property' && (
+            <p className="sheet-row"><span>Costo por casa</span><span>${space.houseCost}</span></p>
+          )}
+
+          {space.type === 'railroad' && (
+            <p className="sheet-note">Renta según cuántas terminales/aeropuerto tengas: $25 · $50 · $100 · $200.</p>
+          )}
+          {space.type === 'utility' && (
+            <p className="sheet-note">Renta = dado tirado × 4 (con 1 servicio) o × 10 (con los 2).</p>
+          )}
+          {space.type === 'tax' && (
+            <p className="sheet-note">Pagás ${space.amount} al bote de Parqueo Gratis.</p>
+          )}
+          {(space.type === 'chance' || space.type === 'chest') && (
+            <p className="sheet-note">Sacás una carta al azar de este mazo.</p>
+          )}
+          {space.type === 'jail' && (
+            <p className="sheet-note">Solo de visita, a menos que te manden aquí desde otra casilla.</p>
+          )}
+          {space.type === 'gotojail' && (
+            <p className="sheet-note">Te manda directo a {board.find(s => s.type === 'jail')?.name}, sin cobrar por pasar Salida.</p>
+          )}
+
+          {ownerPlayer ? (
+            <p className="sheet-row">
+              <span>Dueño</span>
+              <span>
+                <span className="token-mini" style={{ background: PLAYER_COLORS[ownerPlayer.colorIndex % PLAYER_COLORS.length], marginRight: 6 }} />
+                {ownerPlayer.name}{own.houses > 0 ? ` · ${own.houses === 5 ? '🏨' : '🏠'.repeat(own.houses)}` : ''}
+              </span>
+            </p>
+          ) : space.price ? (
+            <p className="sheet-note">Sin dueño todavía.</p>
+          ) : null}
+        </div>
+
+        <button className="btn btn-secondary sheet-close" onClick={onClose}>Cerrar</button>
+      </div>
+    </div>
+  );
+}
+
 export default function Board({ room, myId, onSpaceClick }) {
   const players = room?.players || [];
+  const [selected, setSelected] = useState(null);
+
+  function handleTap(space) {
+    setSelected(space);
+    onSpaceClick && onSpaceClick(space);
+  }
 
   return (
     <div className="board-grid">
@@ -46,7 +124,7 @@ export default function Board({ room, myId, onSpaceClick }) {
             key={space.id}
             className={`space space-${space.type}`}
             style={{ gridRow: row, gridColumn: col }}
-            onClick={() => onSpaceClick && onSpaceClick(space)}
+            onClick={() => handleTap(space)}
           >
             {groupColor && <div className="space-color-bar" style={{ background: groupColor }} />}
             <div className="space-body">
@@ -85,6 +163,8 @@ export default function Board({ room, myId, onSpaceClick }) {
           <span className="board-center-title">Monopoly SV</span>
         </div>
       </div>
+
+      <DetailSheet space={selected} room={room} onClose={() => setSelected(null)} />
     </div>
   );
 }
