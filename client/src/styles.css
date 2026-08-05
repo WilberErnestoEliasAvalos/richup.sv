@@ -1,18 +1,18 @@
 :root {
-  --paper: #EDE3C8;
-  --paper-light: #F7F3E8;
-  --ink: #1A1613;
-  --anil: #2B4C7E;
-  --terracota: #B5502E;
-  --coffee: #6B4226;
-  --coast: #2F9C95;
-  --gold: #E0B93C;
+--paper: #EEF2F7;
+--paper-light: #FFFFFF;
+--ink: #2F3640;
+--anil: #0B2A5B;
+--terracota: #0B2A5B;
+--coffee: #4A5563;
+--coast: #1E4E8C;
+--gold: #C9A24A;
 
-  --font-display: 'Fraunces', serif;
-  --font-body: 'Space Grotesk', sans-serif;
+--font-display: 'Fraunces', serif;
+--font-body: 'Space Grotesk', sans-serif;
 
-  --safe-top: env(safe-area-inset-top, 0px);
-  --safe-bottom: env(safe-area-inset-bottom, 0px);
+--safe-top: env(safe-area-inset-top, 0px);
+--safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -360,7 +360,11 @@ body {
   border-top: 3px solid transparent;
 }
 .tab-btn span { font-size: 10px; font-weight: 600; font-family: var(--font-body); }
-.tab-btn.active { color: var(--terracota); border-top-color: var(--terracota); background: rgba(181,80,46,0.06); }
+.tab-btn.active {
+color: var(--terracota);
+border-top-color: var(--terracota);
+background: rgba(11,42,91,0.08);
+}
 
 .tab-panel {
   flex: 1;

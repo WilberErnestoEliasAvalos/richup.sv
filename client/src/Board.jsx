@@ -16,14 +16,16 @@ function gridPos(index) {
 const PLAYER_COLORS = ['#B5322E', '#2B4C7E', '#2E7D46', '#E0B93C', '#8B5A2B', '#2F9C95'];
 
 function SpaceIcon({ space }) {
-  if (space.type === 'go') return <span className="space-icon">➜</span>;
+  if (space.type === 'go') return <span className="space-icon">⬅️</span>;
   if (space.type === 'jail') return <span className="space-icon">🔒</span>;
   if (space.type === 'freeparking') return <span className="space-icon">🅿️</span>;
   if (space.type === 'gotojail') return <span className="space-icon">🚓</span>;
   if (space.type === 'chance') return <span className="space-icon">🍀</span>;
   if (space.type === 'chest') return <span className="space-icon">🎁</span>;
   if (space.type === 'railroad') return <span className="space-icon">🚌</span>;
-  if (space.type === 'utility') return <span className="space-icon">💧</span>;
+  if (space.type === 'utility') {
+    return <span className="space-icon">{space.name.includes('ANDA') ? '💧' : '⚡'}</span>;
+  }
   return null;
 }
 
