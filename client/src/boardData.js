@@ -22,7 +22,7 @@ export const board = [
   { id: 7,  type: 'chance', name: 'Suerte', code: 'SUER' },
   { id: 8,  type: 'property', name: 'Ilopango Centro', code: 'ILO', group: 'celeste', price: 100, houseCost: 50 },
   { id: 9,  type: 'property', name: 'Chalchuapa Centro', code: 'CHP', group: 'celeste', price: 120, houseCost: 50 },
-  { id: 10, type: 'jail', name: 'Bartolinas', code: 'BART' },
+  { id: 10, type: 'jail', name: 'CECOT', code: 'CECOT' },
   { id: 11, type: 'property', name: 'Centro Histórico de Sonsonate', code: 'SON', group: 'rosa', price: 140, houseCost: 100 },
   { id: 12, type: 'utility', name: 'AES El Salvador', code: 'AES', price: 150 },
   { id: 13, type: 'property', name: 'Centro Histórico de Santa Ana', code: 'STA', group: 'rosa', price: 140, houseCost: 100 },

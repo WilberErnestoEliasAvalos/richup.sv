@@ -24,7 +24,7 @@ const board = [
   { id: 7,  type: 'chance', name: 'Suerte' },
   { id: 8,  type: 'property', name: 'Ilopango Centro', group: 'celeste', price: 100, rent: [6, 30, 90, 270, 400, 550], houseCost: 50 },
   { id: 9,  type: 'property', name: 'Chalchuapa Centro', group: 'celeste', price: 120, rent: [8, 40, 100, 300, 450, 600], houseCost: 50 },
-  { id: 10, type: 'jail', name: 'Bartolinas' },
+    { id: 10,  type: 'jail', name: 'CECOT' },
   { id: 11, type: 'property', name: 'Centro Histórico de Sonsonate', group: 'rosa', price: 140, rent: [10, 50, 150, 450, 625, 750], houseCost: 100 },
   { id: 12, type: 'utility', name: 'AES El Salvador', price: 150 },
   { id: 13, type: 'property', name: 'Centro Histórico de Santa Ana', group: 'rosa', price: 140, rent: [10, 50, 150, 450, 625, 750], houseCost: 100 },
