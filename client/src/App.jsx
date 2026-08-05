@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { socket } from './socket';
 import Board from './Board.jsx';
-import { board } from './boardData';
+import { board, GROUPS } from './boardData';
 
 const PLAYER_COLORS = ['#B5322E', '#2B4C7E', '#2E7D46', '#E0B93C', '#8B5A2B', '#2F9C95'];
 
@@ -14,6 +14,7 @@ export default function App() {
   const [chat, setChat] = useState([]);
   const [chatInput, setChatInput] = useState('');
   const [tab, setTab] = useState('turno'); // turno | jugadores | propiedades | historial | chat
+  const [selectedSpace, setSelectedSpace] = useState(null); // casilla tocada, para la tarjeta de detalle
   const chatEndRef = useRef(null);
 
   useEffect(() => {
@@ -152,7 +153,15 @@ export default function App() {
           {me && <span className="top-bar-cash">${me.cash}</span>}
         </header>
 
-        <Board room={room} myId={socket.id} />
+        <Board room={room} myId={socket.id} onSpaceClick={setSelectedSpace} />
+
+        {selectedSpace && (
+          <SpaceDetailSheet
+            space={selectedSpace}
+            room={room}
+            onClose={() => setSelectedSpace(null)}
+          />
+        )}
 
         <div className="action-bar">
           <div className="action-bar-turn">
@@ -260,4 +269,43 @@ export default function App() {
   }
 
   return <div className="screen">Cargando…</div>;
+}
+
+function SpaceDetailSheet({ space, room, onClose }) {
+  const own = room?.ownership?.[space.id];
+  const ownerPlayer = own ? room.players.find(p => p.id === own.ownerId) : null;
+  const group = space.group ? GROUPS[space.group] : null;
+
+  return (
+    <div className="sheet-backdrop" onClick={onClose}>
+      <div className="sheet-card" onClick={(e) => e.stopPropagation()}>
+        <div className="sheet-handle" />
+        {group && <div className="sheet-color-bar" style={{ background: group.color }} />}
+        <div className="sheet-body">
+          <h3 className="sheet-title">{space.name}</h3>
+          {group && <p className="sheet-group">{group.name}</p>}
+
+          {space.price && (
+            <p className="sheet-row"><span>Precio</span><span>${space.price}</span></p>
+          )}
+          {space.houseCost && (
+            <p className="sheet-row"><span>Costo por casa</span><span>${space.houseCost}</span></p>
+          )}
+          {space.amount && (
+            <p className="sheet-row"><span>Monto</span><span>${space.amount}</span></p>
+          )}
+          {ownerPlayer && (
+            <p className="sheet-row"><span>Dueño</span><span>{ownerPlayer.name}</span></p>
+          )}
+          {own?.houses > 0 && (
+            <p className="sheet-row"><span>Construcción</span><span>{own.houses === 5 ? '🏨 Hotel' : '🏠'.repeat(own.houses)}</span></p>
+          )}
+          {!space.price && !space.amount && !group && (
+            <p className="sheet-note">Esta casilla no se compra ni se paga.</p>
+          )}
+        </div>
+        <button className="btn btn-secondary btn-big sheet-close" onClick={onClose}>Cerrar</button>
+      </div>
+    </div>
+  );
 }

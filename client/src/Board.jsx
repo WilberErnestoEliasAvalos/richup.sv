@@ -49,7 +49,7 @@ export default function Board({ room, myId, onSpaceClick }) {
             {groupColor && <div className="space-color-bar" style={{ background: groupColor }} />}
             <div className="space-body">
               <SpaceIcon space={space} />
-              <div className="space-name">{space.name}</div>
+              <div className="space-name">{space.code}</div>
               {space.price && <div className="space-price">${space.price}</div>}
               {ownerPlayer && (
                 <div
