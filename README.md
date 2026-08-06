@@ -1,121 +1,94 @@
-# Cipher Monopoly SV
+# Cipher Monopoly SV 🇸🇻
 
-Clon de Richup.io tematizado con El Salvador (departamentos, terminales de buses,
-ANDA/CAESS, "Suerte" y "Caja Comunal"), multijugador en tiempo real.
+Clon de Richup.io tematizado con El Salvador (departamentos, terminales de buses, ANDA/CAESS, "Suerte" y "Caja Comunal"), multijugador en tiempo real con Socket.io y React. Diseñado específicamente para pantallas de smartphones.
 
-## Qué incluye este MVP
+---
 
-- Salas con código para invitar amigos (crear / unirse)
-- Turnos por orden, dados, movimiento, cárcel (3 turnos o dobles o pagar $50)
-- Compra de propiedades, terminales de buses y servicios (ANDA/CAESS)
-- Renta automática (incluye monopolio x2 sin casas, terminales y servicios escalonados)
-- Construcción de casas/hotel por color
-- Suerte y Caja Comunal con cartas temáticas
-- Impuestos, Parqueo Gratis con bote acumulado
-- Chat en vivo y bancarrota / condición de victoria
+## 🚀 Características Implementadas (v1.0)
 
-## Lo que falta para una versión 1.0 completa (siguiente iteración)
+### 🎲 Mecánicas Principales de Juego
+- **Salas Multijugador en Tiempo Real**: Creación e ingreso mediante código corto de sala.
+- **Turnos y Movimiento**: Orden de juego, lanzamiento de dados, cárcel (3 turnos, dobles o pago de $50).
+- **Propiedades Temáticas Salvadoreñas**: Departamentos por grupos de color, terminales de buses y servicios públicos (ANDA y CAESS).
+- **Renta Automática**: Renta base, multiplicador de grupo completo (sin casas), cálculo dinámico por número de casas/hotel, terminales y servicios.
 
-- Subastas cuando alguien no compra una propiedad
-- Comercio/trueque entre jugadores (propiedades + efectivo)
-- Hipotecar propiedades
-- Reconexión tras perder internet (ahora mismo, desconectarse = bancarrota)
-- Animación de dados y del movimiento de fichas
-- Persistencia de salas (ahora todo vive en memoria del servidor; si el server
-  se reinicia, las salas se pierden)
+### 🏢 Reglas Oficiales de Monopoly
+- **Subastas Públicas**: Si un jugador no compra la casilla en la que cayó, se abre subasta pública inmediata para todos los activos.
+- **Construcción Pareja Obligatoria**: La compra de casas exige poseer **el grupo completo de color** y construir de forma pareja (paridad).
+- **Venta de Casas al Banco**: Venta al 50% del valor con paridad inversa (desde la propiedad con más casas del grupo).
+- **Hipotecas y Deshipotecas**: Hipotecar al 50% del valor (requiere 0 casas), cobro de renta suspendido mientras esté hipotecada y deshipoteca con 10% de interés.
+- **Bancarrota Diferenciada**:
+  - **Contra un Jugador**: Todos los fondos, cartas y propiedades (hipotecadas o no) pasan al acreedor.
+  - **Contra el Banco**: Casas vendidas al 50% al bote de Parqueo Gratis y propiedades subastadas entre los sobrevivientes.
+- **Sistema de Comercio/Trueque entre Jugadores**: Proponer ofertas de efectivo, propiedades e insignias de salida de cárcel a cualquier jugador activo en cualquier momento.
 
-Decime cuál de estos querés que construyamos primero y seguimos desde aquí.
+### 📱 Interfaz Optimizada para Pantallas Táctiles Móviles
+- **Visor por Cuadrantes (Escala 200%)**: Tablero dividido en 4 cuadrantes con escala al 200% para máxima legibilidad sin necesidad de hacer zoom manual.
+- **Mapeo Matemático de Auto-Seguimiento**: El tablero sigue automáticamente la posición de la ficha del jugador al tirar dados o moverse.
+- **Gestos Táctiles (Swipe)**: Deslizar con el dedo en cualquier dirección para navegar libremente por el tablero.
+- **Botón Zoom Out (`🗺️ Ver Todo`)**: Alternar con un toque entre la vista ampliada de cuadrante y la vista completa del tablero 11×11.
+- **Tarjetas Emergentes (Suerte 🍀 y Caja Comunal 🎁)**: Modales interactivos emergentes que simulan la tarjeta física obtenida.
+- **Historial de Turnos Enriquecido**: Registros clasificados por tarjetas de color, insignias de jugador con su color oficial e íconos característicos por tipo de evento.
 
-## Correrlo en tu computadora
+---
 
-Si ya tenés el runtime local instalado en `.tooling/nodejs`, podés levantar
-todo con un solo comando desde la raíz del proyecto:
+## 🛠️ Desarrollo Local
 
-```bash
-bash dev.sh
-```
+Podés levantar todo localmente con Node.js:
 
-### 1. Backend
-
+### 1. Servidor (Backend)
 ```bash
 cd server
 npm install
 npm run dev
 ```
+*Servidor corriendo en `http://localhost:3001`.*
 
-Esto levanta el servidor en `http://localhost:3001`.
-
-### 2. Frontend
-
-En otra terminal:
-
+### 2. Cliente (Frontend)
 ```bash
 cd client
 npm install
 npm run dev
 ```
+*Vite corriendo en `http://localhost:5173`.*
 
-Esto levanta Vite en `http://localhost:5173`. Abrí esa URL en varias pestañas
-(o compartila en tu red local) para probar el multijugador.
+---
 
-## Desplegarlo en producción (gratis) y conectarlo a mycipher.app
+## 🌐 Guía de Despliegue en Producción (100% Gratuito)
 
-### Paso 1 — Backend en Railway (o Render)
+Para subir el juego a producción utilizando tu propio subdominio (ej. `monopoly.mycipher.app`) con **Cloudflare** y aprovechar tu paquete de **GitHub Student Developer Pack**:
 
-1. Subí la carpeta `server/` a un repo de GitHub.
-2. En [railway.app](https://railway.app) (o [render.com](https://render.com)),
-   creá un nuevo proyecto "Deploy from GitHub repo" apuntando a esa carpeta.
-3. Ambos detectan Node automáticamente. Asegurate que el comando de arranque
-   sea `npm start` y que el puerto lea `process.env.PORT` (ya está así en
-   `index.js`).
-4. Cuando termine el deploy, copiá la URL pública, algo como
-   `https://cipher-monopoly-sv.up.railway.app`.
+### Opción Recomendada (Koyeb/Render + Vercel + Cloudflare)
 
-### Variables de entorno recomendadas
+#### 1. Servidor Node.js (Backend con Socket.io) en Koyeb o Render
+1. Subí la carpeta `server/` a GitHub.
+2. Registrate en **[Koyeb.com](https://koyeb.com)** o **[Render.com](https://render.com)** (ambos ofrecen plan gratuito que soporta WebSockets sin apagar el servidor).
+3. Creá un **Web Service** conectado a tu repositorio:
+   - **Build Command**: `npm install`
+   - **Start Command**: `npm start`
+   - **Variable de Entorno**: `CLIENT_ORIGIN=https://monopoly.mycipher.app`
+4. Copiá la URL asignada (ej: `https://cipher-monopoly-sv.koyeb.app`).
 
-Usá estos valores como base:
+#### 2. Cliente React/Vite (Frontend) en Vercel
+1. Subí la carpeta `client/` a GitHub.
+2. En **[Vercel.com](https://vercel.com)**: **New Project** → Importar repositorio → Framework: **Vite**.
+3. En **Environment Variables**, agregá:
+   - `VITE_SERVER_URL` = `https://cipher-monopoly-sv.koyeb.app` (la URL de tu backend del paso 1).
+4. Desplegá el proyecto.
 
-- `server/.env`
-  - `PORT=3001`
-  - `CLIENT_ORIGIN=https://monopoly.mycipher.app`
-- `client/.env`
-  - `VITE_SERVER_URL=https://cipher-monopoly-sv.up.railway.app`
+#### 3. Configurar tu Subdominio en Cloudflare
+1. En tu panel de **Cloudflare** para `mycipher.app`, ve a **DNS** → **Records**.
+2. Creá un nuevo registro DNS:
+   - **Type**: `CNAME`
+   - **Name**: `monopoly` (para usar `monopoly.mycipher.app`)
+   - **Target**: `cname.vercel-dns.com` (o la URL que te asigna Vercel)
+   - **Proxy Status**: `Proxied` (Nube Naranja)
+3. En **Vercel** → **Settings** → **Domains**, agregá `monopoly.mycipher.app`.
 
-Los ejemplos listos para copiar están en `server/.env.example` y
-`client/.env.example`.
+> 💡 **Nota sobre WebSockets en Cloudflare**: Cloudflare mantiene activos los WebSockets por defecto. Asegúrate de tener el modo SSL/TLS en **Full** o **Full (Strict)** en el panel de Cloudflare.
 
-### Paso 2 — Frontend en Vercel o Netlify
+#### 4. Alternativa con GitHub Student Developer Pack
+Con tu **GitHub Student Pack**, disponés de:
+- **DigitalOcean**: $200 de crédito gratis (podés levantar un Droplet con Node.js + PM2 + Nginx).
+- **Azure for Students**: $100 de crédito gratis sin tarjeta de crédito.
 
-1. Subí la carpeta `client/` a otro repo (o el mismo, como sub-carpeta).
-2. En Vercel: "New Project" → importás el repo → Framework: Vite.
-3. Antes de desplegar, agregá la variable de entorno:
-   - `VITE_SERVER_URL` = la URL de Railway/Render del paso 1.
-4. Deploy.
-
-### Paso 3 — Apuntar tu subdominio
-
-En el panel DNS de `mycipher.app` (donde tengas administrado el dominio),
-creá un registro:
-
-- Tipo: `CNAME`
-- Nombre: `monopoly` (o el subdominio que quieras, ej. `juego`)
-- Valor: el dominio que te da Vercel/Netlify (ej. `cname.vercel-dns.com`)
-
-Luego en el proyecto de Vercel/Netlify, agregá `monopoly.mycipher.app` como
-dominio personalizado — ellos te confirman cuándo el DNS propagó.
-
-El backend (Railway/Render) puede quedarse en su propia URL, no necesita
-subdominio propio, pero si querés uno (ej. `api.mycipher.app`), el proceso es
-el mismo: CNAME apuntando a la URL que te dé la plataforma.
-
-### Nota sobre CORS en producción
-
-En producción, definí `CLIENT_ORIGIN` con el dominio real del frontend para
-que solo ese origen pueda conectar al servidor de juego. Si servís varios
-frontends legítimos, separalos con comas.
-
-Ejemplo:
-
-```bash
-CLIENT_ORIGIN=https://monopoly.mycipher.app,https://www.mycipher.app
-```
