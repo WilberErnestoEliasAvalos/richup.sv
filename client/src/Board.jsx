@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { board, GROUPS } from './boardData';
 
 // Mapea índice 0-39 a posición en grid 11x11 (perímetro), como un Monopoly clásico.
@@ -41,7 +42,7 @@ function DetailSheet({ space, room, onClose }) {
   const ownerPlayer = own ? room.players.find(p => p.id === own.ownerId) : null;
   const groupInfo = space.group ? GROUPS[space.group] : null;
 
-  return (
+  return createPortal(
     <div className="sheet-backdrop" onClick={onClose}>
       <div className="sheet-card" onClick={(e) => e.stopPropagation()}>
         <div className="sheet-handle" />
@@ -97,7 +98,8 @@ function DetailSheet({ space, room, onClose }) {
 
         <button className="btn btn-secondary sheet-close" onClick={onClose}>Cerrar</button>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -129,7 +131,12 @@ export default function Board({ room, myId, onSpaceClick }) {
             {groupColor && <div className="space-color-bar" style={{ background: groupColor }} />}
             <div className="space-body">
               <SpaceIcon space={space} />
-              <div className="space-name">{space.code}</div>
+              <div className="space-name">{space.name}</div>
+              {space.price ? (
+                <div className="space-price">${space.price}</div>
+              ) : space.amount ? (
+                <div className="space-price">${space.amount}</div>
+              ) : null}
               {ownerPlayer && (
                 <div
                   className="space-owner-dot"

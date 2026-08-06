@@ -1,9 +1,202 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { socket } from './socket';
 import Board from './Board.jsx';
-import { board } from './boardData';
+import { board, GROUPS } from './boardData';
 
 const PLAYER_COLORS = ['#B5322E', '#2B4C7E', '#2E7D46', '#E0B93C', '#8B5A2B', '#2F9C95'];
+
+// Order of color groups for sorting properties in Props tab
+const GROUP_ORDER = ['marron', 'celeste', 'rosa', 'naranja', 'roja', 'amarilla', 'verde', 'azulOscuro', 'railroad', 'utility'];
+
+// ---- Board quadrant logic ----
+// Q0=SE (0-9: Salida..Chalchuapa), Q1=SO (10-19: CECOT..Merliot), Q2=NO (20-29: Parqueo..Sunzal), Q3=NE (30-39: Capturado..El Encanto)
+const QUAD_TRANSFORM = [
+  'translate(-50%, -50%)', // Q0 SE — bottom-right
+  'translate(0%,   -50%)', // Q1 SO — bottom-left
+  'translate(0%,    0%)',  // Q2 NO — top-left
+  'translate(-50%,  0%)',  // Q3 NE — top-right
+];
+const QUAD_NEIGHBORS = [
+  { left: 1,    right: null, up: 3,    down: null }, // Q0 SE
+  { left: null, right: 0,   up: 2,    down: null }, // Q1 SO
+  { left: null, right: 3,   up: null, down: 1    }, // Q2 NO
+  { left: 2,    right: null, up: null, down: 0    }, // Q3 NE
+];
+
+// Mini-map 2x2 reading order: top-left=NO, top-right=NE, bottom-left=SO, bottom-right=SE
+const MINIMAP_ORDER = [2, 3, 1, 0];
+
+// ---- Exact 11x11 Grid Quadrant Mapping ----
+// Q0=SE (36..39 & 0..5: Salida/Apopa/Terminal Occidente..), Q1=SO (6..15: Soyapango..Terminal Oriente), Q2=NO (16..25: Zaragoza..Terminal Sur), Q3=NE (26..35: Costa del Sol..Aeropuerto)
+function quadrantOf(position) {
+  const p = (Number(position) || 0) % 40;
+  if (p >= 6  && p <= 15) return 1; // SO (Bottom-Left: 6..15)
+  if (p >= 16 && p <= 25) return 2; // NO (Top-Left: 16..25)
+  if (p >= 26 && p <= 35) return 3; // NE (Top-Right: 26..35)
+  return 0;                         // SE (Bottom-Right: 36..39 & 0..5)
+}
+
+function BoardQuadrantView({ room, myId, myPosition }) {
+  const [quadrant, setQuadrant] = useState(() => quadrantOf(myPosition ?? 0));
+  const [isFullBoard, setIsFullBoard] = useState(false);
+  const touchStartRef = useRef(null);
+
+  // Auto-follow: ALWAYS jump to the quadrant of my token whenever position updates or dice are rolled
+  useEffect(() => {
+    if (typeof myPosition === 'number') {
+      const q = quadrantOf(myPosition);
+      setQuadrant(q);
+    }
+  }, [myPosition, room?.lastDice, room?.currentPlayerIndex]);
+
+  const nb = QUAD_NEIGHBORS[quadrant];
+
+  // Swipe gesture support
+  function onTouchStart(e) {
+    if (isFullBoard) return;
+    const t = e.touches[0];
+    touchStartRef.current = { x: t.clientX, y: t.clientY, time: Date.now() };
+  }
+  function onTouchEnd(e) {
+    if (isFullBoard || !touchStartRef.current) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - touchStartRef.current.x;
+    const dy = t.clientY - touchStartRef.current.y;
+    const dt = Date.now() - touchStartRef.current.time;
+    touchStartRef.current = null;
+
+    if (dt > 800) return;
+    if (Math.abs(dx) < 30 && Math.abs(dy) < 30) return;
+
+    if (Math.abs(dx) > Math.abs(dy)) {
+      if (dx < -30 && nb.right !== null) setQuadrant(nb.right);
+      if (dx > 30 && nb.left !== null) setQuadrant(nb.left);
+    } else {
+      if (dy < -30 && nb.down !== null) setQuadrant(nb.down);
+      if (dy > 30 && nb.up !== null) setQuadrant(nb.up);
+    }
+  }
+
+  return (
+    <div className="board-viewport" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+      <div
+        className="board-scaler"
+        style={{
+          transform: isFullBoard ? 'none' : QUAD_TRANSFORM[quadrant],
+          width: isFullBoard ? '100%' : '200%',
+          height: isFullBoard ? '100%' : '200%',
+        }}
+      >
+        <Board room={room} myId={myId} />
+      </div>
+
+      {/* Toggle Full Board / Zoom Out button */}
+      <button
+        className={`quad-zoom-btn ${!isFullBoard ? `quad-zoom-btn-q${quadrant}` : ''}`}
+        onClick={() => setIsFullBoard(prev => !prev)}
+        title={isFullBoard ? "Vista ampliada por cuadrante" : "Ver tablero completo"}
+      >
+        {isFullBoard ? "🔎 Zoom Cuadrante" : "🗺️ Ver Todo"}
+      </button>
+
+      {/* Navigation arrows & mini-map (only in quadrant zoom view) */}
+      {!isFullBoard && (
+        <>
+          {nb.up    !== null && <button className="quad-arrow quad-arrow-up"    onClick={() => setQuadrant(nb.up)}>▲</button>}
+          {nb.down  !== null && <button className="quad-arrow quad-arrow-down"  onClick={() => setQuadrant(nb.down)}>▼</button>}
+          {nb.left  !== null && <button className="quad-arrow quad-arrow-left"  onClick={() => setQuadrant(nb.left)}>◀</button>}
+          {nb.right !== null && <button className="quad-arrow quad-arrow-right" onClick={() => setQuadrant(nb.right)}>▶</button>}
+
+          {/* Mini-map positioned in empty inner center area of the board */}
+          <div className={`quad-minimap quad-minimap-q${quadrant}`}>
+            {MINIMAP_ORDER.map(q => (
+              <div
+                key={q}
+                className={`quad-minimap-cell${quadrant === q ? ' active' : ''}`}
+                onClick={() => setQuadrant(q)}
+              />
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---- Log formatting helper ----
+function getLogCategory(msg) {
+  if (msg.includes('quebró')) return { category: 'bankrupt', icon: '💥' };
+  if (msg.includes('ganó la partida')) return { category: 'win', icon: '🏆' };
+  if (msg.includes('pagó') && msg.includes('renta')) return { category: 'rent', icon: '💳' };
+  if (msg.includes('pagó') && msg.includes('impuestos')) return { category: 'tax', icon: '🏛️' };
+  if (msg.includes('compró')) return { category: 'buy', icon: '🏷️' };
+  if (msg.includes('construyó')) return { category: 'build', icon: '🏠' };
+  if (msg.includes('vendió una casa')) return { category: 'sell', icon: '🔻' };
+  if (msg.includes('hipotecó')) return { category: 'mortgage', icon: '📑' };
+  if (msg.includes('levantó la hipoteca')) return { category: 'unmortgage', icon: '🟢' };
+  if (msg.includes('Parqueo Gratis')) return { category: 'parking', icon: '🅿️' };
+  if (msg.includes('cárcel') || msg.includes('CECOT')) return { category: 'jail', icon: '🔒' };
+  if (msg.includes('carta')) return { category: 'card', icon: '🎁' };
+  if (msg.includes('subasta') || msg.includes('pujó')) return { category: 'auction', icon: '🔨' };
+  if (msg.includes('trato')) return { category: 'trade', icon: '🤝' };
+  if (msg.includes('tiró') || msg.includes('pasó por Salida')) return { category: 'roll', icon: '🎲' };
+  if (msg.includes('unió') || msg.includes('comenzó')) return { category: 'info', icon: '🚀' };
+  return { category: 'info', icon: '📜' };
+}
+
+function LogEntryItem({ entry, players }) {
+  const { category, icon } = getLogCategory(entry.message);
+  const text = entry.message;
+
+  function renderFormattedText(msgText) {
+    const parts = msgText.split(/(\$[0-9]+)/g);
+    return parts.map((part, index) => {
+      if (part.startsWith('$')) {
+        return <span key={index} className="log-cash-pill">{part}</span>;
+      }
+      
+      let elements = [part];
+      if (players && players.length > 0) {
+        players.forEach(p => {
+          if (!p.name) return;
+          const nextElements = [];
+          elements.forEach((el, elIdx) => {
+            if (typeof el !== 'string') {
+              nextElements.push(el);
+              return;
+            }
+            const nameParts = el.split(p.name);
+            nameParts.forEach((nP, nIdx) => {
+              if (nIdx > 0) {
+                const color = PLAYER_COLORS[p.colorIndex % PLAYER_COLORS.length];
+                nextElements.push(
+                  <span key={`p-${p.id}-${elIdx}-${nIdx}`} className="log-player-badge" style={{ backgroundColor: color }}>
+                    {p.name}
+                  </span>
+                );
+              }
+              if (nP) nextElements.push(nP);
+            });
+          });
+          elements = nextElements;
+        });
+      }
+      return <React.Fragment key={index}>{elements}</React.Fragment>;
+    });
+  }
+
+  const timeStr = entry.ts ? new Date(entry.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+
+  return (
+    <li className={`log-card log-card-${category}`}>
+      <span className="log-icon">{icon}</span>
+      <div className="log-body">
+        <span className="log-text">{renderFormattedText(text)}</span>
+        {timeStr && <span className="log-time">{timeStr}</span>}
+      </div>
+    </li>
+  );
+}
 
 export default function App() {
   const [screen, setScreen] = useState('home'); // home | lobby | game
@@ -13,6 +206,7 @@ export default function App() {
   const [error, setError] = useState('');
   const [chat, setChat] = useState([]);
   const [chatInput, setChatInput] = useState('');
+  const [unreadChat, setUnreadChat] = useState(0);
   const [auctionBid, setAuctionBid] = useState('');
   const [tab, setTab] = useState('turno'); // turno | jugadores | propiedades | comercio | chat
   const chatEndRef = useRef(null);
@@ -27,6 +221,11 @@ export default function App() {
   const [reqJail, setReqJail]         = useState(0);
   const [tradeErr, setTradeErr]       = useState('');
 
+  const currentTabRef = useRef(tab);
+  useEffect(() => {
+    currentTabRef.current = tab;
+  }, [tab]);
+
   useEffect(() => {
     function onRoomState(r) {
       setRoom(r);
@@ -34,6 +233,9 @@ export default function App() {
     }
     function onChat(msg) {
       setChat(prev => [...prev, msg]);
+      if (currentTabRef.current !== 'chat') {
+        setUnreadChat(prev => prev + 1);
+      }
     }
     function onTradeError({ message }) {
       setTradeErr(message);
@@ -197,7 +399,7 @@ export default function App() {
           {me && <span className="top-bar-cash">${me.cash}</span>}
         </header>
 
-        <Board room={room} myId={socket.id} />
+        <BoardQuadrantView room={room} myId={socket.id} myPosition={me?.position ?? 0} />
 
         <div className="action-bar">
           <div className="action-bar-turn">
@@ -274,14 +476,16 @@ export default function App() {
           <button className={`tab-btn ${tab === 'jugadores' ? 'active' : ''}`} onClick={() => setTab('jugadores')}>👥<span>Jugadores</span></button>
           <button className={`tab-btn ${tab === 'propiedades' ? 'active' : ''}`} onClick={() => setTab('propiedades')}>🏠<span>Props</span></button>
           <button className={`tab-btn ${tab === 'comercio' ? 'active' : ''}`} onClick={() => setTab('comercio')}>🤝<span>Comercio</span></button>
-          <button className={`tab-btn ${tab === 'chat' ? 'active' : ''}`} onClick={() => setTab('chat')}>💬<span>Chat</span></button>
+          <button className={`tab-btn ${tab === 'chat' ? 'active' : ''}`} onClick={() => { setTab('chat'); setUnreadChat(0); }}>
+            💬<span>Chat{unreadChat > 0 && <span className="unread-badge">{unreadChat}</span>}</span>
+          </button>
         </nav>
 
         <div className="tab-panel">
           {tab === 'turno' && (
             <ul className="log-list">
-              {room.log.slice(0, 20).map((entry, i) => (
-                <li key={i}>{entry.message}</li>
+              {room.log.slice(0, 30).map((entry, i) => (
+                <LogEntryItem key={i} entry={entry} players={room.players} />
               ))}
             </ul>
           )}
@@ -299,62 +503,92 @@ export default function App() {
             </ul>
           )}
 
-          {tab === 'propiedades' && (
-            <ul className="prop-list">
-              {myProps.length === 0 && <li className="prop-empty">Todavía no tenés propiedades.</li>}
-              {myProps.map(([spaceId, o]) => {
-                const sp = board.find(s => s.id === Number(spaceId));
-                return (
-                  <li key={spaceId} className={`prop-list-item ${o.mortgaged ? 'prop-mortgaged' : ''}`}>
-                    <span className="prop-label">
-                      {sp.name}
-                      {o.mortgaged && <span className="mortgage-tag">Hipotecada</span>}
-                      {sp.type === 'property' && o.houses > 0 && <span className="house-count">🏠×{o.houses}</span>}
-                    </span>
-                    <span className="prop-actions">
-                      {sp.type === 'property' && !o.mortgaged && (
-                        <button
-                          className="btn-mini"
-                          disabled={!isMyTurn || o.houses >= 5}
-                          onClick={() => socket.emit('buildHouse', { spaceId: sp.id })}
-                        >
-                          🏠 ${sp.houseCost}
-                        </button>
-                      )}
-                      {sp.type === 'property' && o.houses > 0 && (
-                        <button
-                          className="btn-mini"
-                          disabled={!isMyTurn}
-                          onClick={() => socket.emit('sellHouse', { spaceId: sp.id })}
-                        >
-                          🔻 ${Math.floor(sp.houseCost / 2)}
-                        </button>
-                      )}
-                      {o.mortgaged ? (
-                        <button
-                          className="btn-mini"
-                          disabled={!isMyTurn}
-                          onClick={() => socket.emit('unmortgageProperty', { spaceId: sp.id })}
-                        >
-                          Levantar (${Math.ceil(sp.price / 2 * 1.10)})
-                        </button>
-                      ) : (
-                        sp.price && o.houses === 0 && (
+          {tab === 'propiedades' && (() => {
+            const sortedMyProps = Object.entries(room.ownership)
+              .filter(([, o]) => o.ownerId === me?.id)
+              .map(([id, o]) => ({ spaceId: Number(id), own: o, space: board.find(s => s.id === Number(id)) }))
+              .filter(item => Boolean(item.space))
+              .sort((a, b) => {
+                const groupA = a.space.group || a.space.type;
+                const groupB = b.space.group || b.space.type;
+                const indexA = GROUP_ORDER.indexOf(groupA);
+                const indexB = GROUP_ORDER.indexOf(groupB);
+                if (indexA !== indexB) return (indexA === -1 ? 99 : indexA) - (indexB === -1 ? 99 : indexB);
+                return a.space.id - b.space.id;
+              });
+
+            return (
+              <ul className="prop-list">
+                {sortedMyProps.length === 0 && <li className="prop-empty">Todavía no tenés propiedades.</li>}
+                {sortedMyProps.map(({ spaceId, own: o, space: sp }) => {
+                  const groupColor = sp.group ? GROUPS[sp.group]?.color : (sp.type === 'railroad' ? '#4A5563' : '#1E4E8C');
+                  const groupSpaces = sp.group ? board.filter(s => s.group === sp.group) : [];
+                  const totalInGroup = groupSpaces.length;
+                  const ownedInGroup = groupSpaces.filter(s => room.ownership[s.id]?.ownerId === me?.id).length;
+                  const ownsAllGroup = sp.type === 'property' && totalInGroup > 0 && ownedInGroup === totalInGroup;
+
+                  return (
+                    <li
+                      key={spaceId}
+                      className={`prop-list-item ${o.mortgaged ? 'prop-mortgaged' : ''}`}
+                      style={{ borderLeft: `6px solid ${groupColor}`, paddingLeft: '10px' }}
+                    >
+                      <span className="prop-label">
+                        <span className="prop-name-text">{sp.name}</span>
+                        {o.mortgaged && <span className="mortgage-tag">Hipotecada</span>}
+                        {sp.type === 'property' && o.houses > 0 && <span className="house-count">🏠×{o.houses}</span>}
+                        {sp.type === 'property' && !ownsAllGroup && (
+                          <span className="group-progress" title={`Debes poseer las ${totalInGroup} propiedades de este grupo`}>
+                            ({ownedInGroup}/{totalInGroup})
+                          </span>
+                        )}
+                      </span>
+                      <span className="prop-actions">
+                        {sp.type === 'property' && !o.mortgaged && (
+                          <button
+                            className="btn-mini"
+                            disabled={!isMyTurn || o.houses >= 5 || !ownsAllGroup || (me?.cash ?? 0) < sp.houseCost}
+                            title={!ownsAllGroup ? `Debes poseer el grupo completo (${ownedInGroup}/${totalInGroup}) para construir` : ''}
+                            onClick={() => socket.emit('buildHouse', { spaceId: sp.id })}
+                          >
+                            🏠 ${sp.houseCost}
+                          </button>
+                        )}
+                        {sp.type === 'property' && o.houses > 0 && (
                           <button
                             className="btn-mini"
                             disabled={!isMyTurn}
-                            onClick={() => socket.emit('mortgageProperty', { spaceId: sp.id })}
+                            onClick={() => socket.emit('sellHouse', { spaceId: sp.id })}
                           >
-                            Hipotecar
+                            🔻 ${Math.floor(sp.houseCost / 2)}
                           </button>
-                        )
-                      )}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
+                        )}
+                        {o.mortgaged ? (
+                          <button
+                            className="btn-mini"
+                            disabled={!isMyTurn}
+                            onClick={() => socket.emit('unmortgageProperty', { spaceId: sp.id })}
+                          >
+                            Levantar (${Math.ceil(sp.price / 2 * 1.10)})
+                          </button>
+                        ) : (
+                          sp.price && o.houses === 0 && (
+                            <button
+                              className="btn-mini"
+                              disabled={!isMyTurn}
+                              onClick={() => socket.emit('mortgageProperty', { spaceId: sp.id })}
+                            >
+                              Hipotecar
+                            </button>
+                          )
+                        )}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            );
+          })()}
 
           {tab === 'chat' && (
             <div className="chat-block">
