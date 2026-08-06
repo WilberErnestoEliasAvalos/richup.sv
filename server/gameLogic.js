@@ -16,6 +16,7 @@ function createRoom(roomId, hostId, hostName) {
     ownership: {}, // spaceId -> { ownerId, houses, mortgaged }
     auction: null,
     trades: [],
+    lastDrawnCard: null,
     log: [],
     turnPhase: 'roll', // roll -> action -> end
     lastDice: null,
@@ -197,6 +198,13 @@ function handleDrawCard(room, player, deckType) {
       });
       break;
   }
+  room.lastDrawnCard = {
+    id: Date.now() + Math.random(),
+    playerId: player.id,
+    playerName: player.name,
+    deckType: deckType,
+    text: card.text,
+  };
   return card;
 }
 

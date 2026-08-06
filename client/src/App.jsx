@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { socket } from './socket';
 import Board from './Board.jsx';
 import { board, GROUPS } from './boardData';
@@ -22,9 +23,6 @@ const QUAD_NEIGHBORS = [
   { left: null, right: 3,   up: null, down: 1    }, // Q2 NO
   { left: 2,    right: null, up: null, down: 0    }, // Q3 NE
 ];
-
-// Mini-map 2x2 reading order: top-left=NO, top-right=NE, bottom-left=SO, bottom-right=SE
-const MINIMAP_ORDER = [2, 3, 1, 0];
 
 // ---- Exact 11x11 Grid Quadrant Mapping ----
 // Q0=SE (36..39 & 0..5: Salida/Apopa/Terminal Occidente..), Q1=SO (6..15: Soyapango..Terminal Oriente), Q2=NO (16..25: Zaragoza..Terminal Sur), Q3=NE (26..35: Costa del Sol..Aeropuerto)
@@ -99,27 +97,39 @@ function BoardQuadrantView({ room, myId, myPosition }) {
         {isFullBoard ? "🔎 Zoom Cuadrante" : "🗺️ Ver Todo"}
       </button>
 
-      {/* Navigation arrows & mini-map (only in quadrant zoom view) */}
+      {/* Navigation arrows (only in quadrant zoom view) */}
       {!isFullBoard && (
         <>
           {nb.up    !== null && <button className="quad-arrow quad-arrow-up"    onClick={() => setQuadrant(nb.up)}>▲</button>}
           {nb.down  !== null && <button className="quad-arrow quad-arrow-down"  onClick={() => setQuadrant(nb.down)}>▼</button>}
           {nb.left  !== null && <button className="quad-arrow quad-arrow-left"  onClick={() => setQuadrant(nb.left)}>◀</button>}
           {nb.right !== null && <button className="quad-arrow quad-arrow-right" onClick={() => setQuadrant(nb.right)}>▶</button>}
-
-          {/* Mini-map positioned in empty inner center area of the board */}
-          <div className={`quad-minimap quad-minimap-q${quadrant}`}>
-            {MINIMAP_ORDER.map(q => (
-              <div
-                key={q}
-                className={`quad-minimap-cell${quadrant === q ? ' active' : ''}`}
-                onClick={() => setQuadrant(q)}
-              />
-            ))}
-          </div>
         </>
       )}
     </div>
+  );
+}
+
+function CardModal({ card, onDismiss }) {
+  if (!card) return null;
+  const isChance = card.deckType === 'chance';
+  return createPortal(
+    <div className="sheet-backdrop" onClick={onDismiss}>
+      <div className={`card-modal-body ${isChance ? 'card-modal-chance' : 'card-modal-chest'}`} onClick={e => e.stopPropagation()}>
+        <div className="card-modal-header">
+          <span className="card-modal-icon">{isChance ? '🍀' : '🎁'}</span>
+          <h3>{isChance ? 'TARJETA DE SUERTE' : 'CAJA COMUNAL'}</h3>
+        </div>
+        <div className="card-modal-content">
+          <p className="card-modal-text">"{card.text}"</p>
+          <p className="card-modal-player">Obtenida por: <strong>{card.playerName}</strong></p>
+        </div>
+        <button className="btn btn-primary card-modal-btn" onClick={onDismiss}>
+          Aceptar
+        </button>
+      </div>
+    </div>,
+    document.body
   );
 }
 
@@ -211,7 +221,8 @@ export default function App() {
   const [tab, setTab] = useState('turno'); // turno | jugadores | propiedades | comercio | chat
   const chatEndRef = useRef(null);
 
-  // ---- Trade form state ----
+  // ---- Card modal & trade state ----
+  const [dismissedCardId, setDismissedCardId] = useState(null);
   const [tradeTarget, setTradeTarget] = useState('');
   const [offerCash, setOfferCash]     = useState(0);
   const [offerPropIds, setOfferPropIds] = useState([]);
@@ -471,11 +482,18 @@ export default function App() {
           )}
         </div>
 
+        <CardModal
+          card={room?.lastDrawnCard && room.lastDrawnCard.id !== dismissedCardId ? room.lastDrawnCard : null}
+          onDismiss={() => setDismissedCardId(room?.lastDrawnCard?.id)}
+        />
+
         <nav className="tab-bar">
           <button className={`tab-btn ${tab === 'turno' ? 'active' : ''}`} onClick={() => setTab('turno')}>📜<span>Historial</span></button>
           <button className={`tab-btn ${tab === 'jugadores' ? 'active' : ''}`} onClick={() => setTab('jugadores')}>👥<span>Jugadores</span></button>
           <button className={`tab-btn ${tab === 'propiedades' ? 'active' : ''}`} onClick={() => setTab('propiedades')}>🏠<span>Props</span></button>
-          <button className={`tab-btn ${tab === 'comercio' ? 'active' : ''}`} onClick={() => setTab('comercio')}>🤝<span>Comercio</span></button>
+          <button className={`tab-btn ${tab === 'comercio' ? 'active' : ''}`} onClick={() => setTab('comercio')}>
+            🤝<span>Comercio{(room?.trades?.length ?? 0) > 0 && <span className="trade-pulse-dot" />}</span>
+          </button>
           <button className={`tab-btn ${tab === 'chat' ? 'active' : ''}`} onClick={() => { setTab('chat'); setUnreadChat(0); }}>
             💬<span>Chat{unreadChat > 0 && <span className="unread-badge">{unreadChat}</span>}</span>
           </button>
@@ -612,7 +630,7 @@ export default function App() {
           )}
 
           {tab === 'comercio' && (() => {
-            const myTrades = (room.trades || []).filter(t => t.fromId === socket.id || t.toId === socket.id);
+            const allTrades = room.trades || [];
             const otherPlayers = room.players.filter(p => p.id !== socket.id && !p.bankrupt);
             const targetPlayer = otherPlayers.find(p => p.id === tradeTarget) || otherPlayers[0];
             const effectiveTarget = targetPlayer?.id || '';
@@ -655,31 +673,35 @@ export default function App() {
 
                 {/* --- Pending trades --- */}
                 <div className="trade-section-title">Tratos pendientes</div>
-                {myTrades.length === 0 && (
+                {allTrades.length === 0 && (
                   <p className="prop-empty">No hay tratos pendientes.</p>
                 )}
-                {myTrades.map(t => {
+                {allTrades.map(t => {
                   const isReceiver = t.toId === socket.id;
-                  const otherName = room.players.find(p => p.id === (isReceiver ? t.fromId : t.toId))?.name ?? '?';
-                  const offerPropNames  = t.offer.propertyIds.map(id => board.find(s => s.id === id)?.name ?? `#${id}`).join(', ');
-                  const reqPropNames    = t.request.propertyIds.map(id => board.find(s => s.id === id)?.name ?? `#${id}`).join(', ');
-                  const offerDesc  = [t.offer.cash   > 0 ? `$${t.offer.cash}` : null,   offerPropNames || null, t.offer.jailCards   > 0 ? `${t.offer.jailCards}🃏` : null].filter(Boolean).join(' + ') || '—';
-                  const reqDesc    = [t.request.cash > 0 ? `$${t.request.cash}` : null, reqPropNames   || null, t.request.jailCards > 0 ? `${t.request.jailCards}🃏` : null].filter(Boolean).join(' + ') || '—';
+                  const isProposer = t.fromId === socket.id;
+                  const fromName = room.players.find(p => p.id === t.fromId)?.name ?? '?';
+                  const toName   = room.players.find(p => p.id === t.toId)?.name ?? '?';
+
+                  const offerPropNames = t.offer.propertyIds.map(id => board.find(s => s.id === id)?.name ?? `#${id}`).join(', ');
+                  const reqPropNames   = t.request.propertyIds.map(id => board.find(s => s.id === id)?.name ?? `#${id}`).join(', ');
+                  const offerDesc = [t.offer.cash   > 0 ? `$${t.offer.cash}` : null,   offerPropNames || null, t.offer.jailCards   > 0 ? `${t.offer.jailCards}🃏` : null].filter(Boolean).join(' + ') || '—';
+                  const reqDesc   = [t.request.cash > 0 ? `$${t.request.cash}` : null, reqPropNames   || null, t.request.jailCards > 0 ? `${t.request.jailCards}🃏` : null].filter(Boolean).join(' + ') || '—';
+
                   return (
                     <div key={t.id} className="trade-card">
                       <div className="trade-card-header">
-                        <span className="trade-with">{isReceiver ? `De ${otherName}` : `Para ${otherName}`}</span>
+                        <span className="trade-with">{fromName} ➔ {toName}</span>
                         <span className="trade-id">#{t.id}</span>
                       </div>
                       <div className="trade-sides">
                         <div className="trade-side">
-                          <span className="trade-side-label">Ofrecen</span>
-                          <span className="trade-side-value">{isReceiver ? offerDesc : reqDesc}</span>
+                          <span className="trade-side-label">{fromName} ofrece</span>
+                          <span className="trade-side-value">{offerDesc}</span>
                         </div>
                         <div className="trade-arrow">⇄</div>
                         <div className="trade-side">
-                          <span className="trade-side-label">Piden</span>
-                          <span className="trade-side-value">{isReceiver ? reqDesc : offerDesc}</span>
+                          <span className="trade-side-label">{toName} pide</span>
+                          <span className="trade-side-value">{reqDesc}</span>
                         </div>
                       </div>
                       <div className="trade-card-actions">
@@ -694,11 +716,13 @@ export default function App() {
                               Rechazar
                             </button>
                           </>
-                        ) : (
+                        ) : isProposer ? (
                           <button className="btn btn-secondary"
                             onClick={() => socket.emit('cancelTrade', { tradeId: t.id })}>
                             Cancelar trato
                           </button>
+                        ) : (
+                          <span className="trade-spectator-badge">Pendiente entre {fromName} y {toName}</span>
                         )}
                       </div>
                     </div>
