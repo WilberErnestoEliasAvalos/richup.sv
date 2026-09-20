@@ -231,11 +231,30 @@ export default function App() {
   const [reqPropIds, setReqPropIds]   = useState([]);
   const [reqJail, setReqJail]         = useState(0);
   const [tradeErr, setTradeErr]       = useState('');
+  const [connectionStatus, setConnectionStatus] = useState('connected'); // connected | disconnected | reconnecting | reconnected
 
   const currentTabRef = useRef(tab);
   useEffect(() => {
     currentTabRef.current = tab;
   }, [tab]);
+
+  // Save session to localStorage for reconnection
+  function saveSession(roomId, reconnectToken, playerName) {
+    try {
+      localStorage.setItem('cipher_session', JSON.stringify({ roomId, reconnectToken, playerName }));
+    } catch (e) { /* localStorage unavailable */ }
+  }
+
+  function clearSession() {
+    try { localStorage.removeItem('cipher_session'); } catch (e) {}
+  }
+
+  function getSavedSession() {
+    try {
+      const raw = localStorage.getItem('cipher_session');
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) { return null; }
+  }
 
   useEffect(() => {
     function onRoomState(r) {
@@ -248,17 +267,63 @@ export default function App() {
         setUnreadChat(prev => prev + 1);
       }
     }
-    function onTradeError({ message }) {
-      setTradeErr(message);
+    function onTradeError({ message } = {}) {
+      setTradeErr(message || 'Error en el trato.');
       setTimeout(() => setTradeErr(''), 4000);
     }
+
+    function onConnect() {
+      // Try to rejoin if we have saved session data
+      const session = getSavedSession();
+      if (session && session.roomId && session.reconnectToken) {
+        socket.emit('rejoinRoom', {
+          roomId: session.roomId,
+          reconnectToken: session.reconnectToken,
+        }, (res) => {
+          if (res && res.ok) {
+            setRoom(res.room);
+            setScreen(res.room.started ? 'game' : 'lobby');
+            setName(session.playerName || '');
+            setConnectionStatus('reconnected');
+            setTimeout(() => setConnectionStatus('connected'), 3000);
+          } else {
+            // Session invalid, clear it
+            clearSession();
+            setConnectionStatus('connected');
+          }
+        });
+      } else {
+        setConnectionStatus('connected');
+      }
+    }
+
+    function onDisconnect() {
+      setConnectionStatus('disconnected');
+    }
+
+    function onReconnectAttempt() {
+      setConnectionStatus('reconnecting');
+    }
+
     socket.on('roomState', onRoomState);
     socket.on('chatMessage', onChat);
     socket.on('tradeError', onTradeError);
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
+    socket.io.on('reconnect_attempt', onReconnectAttempt);
+
+    // If already connected on mount, try rejoin
+    if (socket.connected) {
+      onConnect();
+    }
+
     return () => {
       socket.off('roomState', onRoomState);
       socket.off('chatMessage', onChat);
       socket.off('tradeError', onTradeError);
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
+      socket.io.off('reconnect_attempt', onReconnectAttempt);
     };
   }, []);
 
@@ -285,6 +350,9 @@ export default function App() {
       setRoom(res.room);
       setScreen('lobby');
       setError('');
+      if (res.reconnectToken) {
+        saveSession(res.roomId, res.reconnectToken, name.trim());
+      }
     });
   }
 
@@ -296,6 +364,9 @@ export default function App() {
       setRoom(res.room);
       setScreen('lobby');
       setError('');
+      if (res.reconnectToken) {
+        saveSession(res.roomId, res.reconnectToken, name.trim());
+      }
     });
   }
 
@@ -409,6 +480,14 @@ export default function App() {
           <span className="top-bar-room">Sala {room.roomId}</span>
           {me && <span className="top-bar-cash">${me.cash}</span>}
         </header>
+
+        {connectionStatus !== 'connected' && (
+          <div className={`connection-banner connection-${connectionStatus}`}>
+            {connectionStatus === 'disconnected' && '⚠️ Sin conexión — reconectando...'}
+            {connectionStatus === 'reconnecting' && '🔄 Reconectando...'}
+            {connectionStatus === 'reconnected' && '✅ Reconectado exitosamente'}
+          </div>
+        )}
 
         <BoardQuadrantView room={room} myId={socket.id} myPosition={me?.position ?? 0} />
 

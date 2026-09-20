@@ -1015,6 +1015,44 @@ background: rgba(11,42,91,0.08);
   font-weight: 700;
 }
 
+/* ---- Connection Status Banner ---- */
+.connection-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 9999;
+  text-align: center;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  animation: banner-slide-down 0.3s ease-out;
+}
 
+@keyframes banner-slide-down {
+  from { transform: translateY(-100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.connection-disconnected {
+  background: linear-gradient(135deg, #E84118 0%, #C0392B 100%);
+  color: #fff;
+}
+
+.connection-reconnecting {
+  background: linear-gradient(135deg, #F39C12 0%, #E67E22 100%);
+  color: #fff;
+}
+
+.connection-reconnected {
+  background: linear-gradient(135deg, #27AE60 0%, #2ECC71 100%);
+  color: #fff;
+  animation: banner-slide-down 0.3s ease-out, banner-fade-out 0.5s 2.5s forwards;
+}
+
+@keyframes banner-fade-out {
+  to { opacity: 0; transform: translateY(-100%); }
+}
 
 

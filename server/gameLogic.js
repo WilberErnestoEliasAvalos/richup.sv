@@ -268,9 +268,10 @@ function canSellHouse(room, space, ownerId) {
 }
 
 function payPlayer(room, fromPlayer, toPlayerId, amount) {
+  const actualPayment = Math.min(amount, Math.max(0, fromPlayer.cash));
   fromPlayer.cash -= amount;
   const to = room.players.find(p => p.id === toPlayerId);
-  if (to) to.cash += amount;
+  if (to) to.cash += actualPayment;
 }
 
 function checkBankrupt(room, player, creditorId) {
@@ -320,6 +321,61 @@ function checkBankrupt(room, player, creditorId) {
 
   // Step 3: saved by selling houses
   return false;
+}
+
+// Handles full elimination of a player: advances turn if needed, cleans auction, checks winner.
+// Called when disconnect grace period expires or when checkBankrupt confirms bankruptcy.
+function handlePlayerElimination(room, player, creditorId) {
+  // Mark bankrupt via checkBankrupt if not already
+  if (!player.bankrupt) {
+    player.bankrupt = true;
+    player.cash = 0;
+    // Transfer or release properties
+    const creditor = creditorId ? room.players.find(p => p.id === creditorId) : null;
+    if (creditor) {
+      Object.keys(room.ownership).forEach(id => {
+        if (room.ownership[id].ownerId === player.id) {
+          room.ownership[id].ownerId = creditorId;
+        }
+      });
+      addLog(room, `${player.name} quebró. Sus propiedades pasan a ${creditor.name}.`);
+    } else {
+      Object.keys(room.ownership).forEach(id => {
+        if (room.ownership[id].ownerId === player.id) delete room.ownership[id];
+      });
+      addLog(room, `${player.name} quebró y sus propiedades volvieron al banco.`);
+    }
+  }
+
+  // Remove from active auction if present
+  if (room.auction && room.auction.order) {
+    const idx = room.auction.order.indexOf(player.id);
+    if (idx !== -1) {
+      room.auction.order.splice(idx, 1);
+      if (room.auction.turnIndex >= room.auction.order.length && room.auction.order.length > 0) {
+        room.auction.turnIndex = 0;
+      }
+    }
+    resolveAuctionIfDone(room);
+  }
+
+  // Remove pending trades involving this player
+  room.trades = room.trades.filter(t => t.fromId !== player.id && t.toId !== player.id);
+
+  // If it was this player's turn, advance
+  const cp = currentPlayer(room);
+  if (cp && cp.id === player.id) {
+    advanceTurn(room);
+  }
+
+  // Check if game is over
+  const active = activePlayers(room);
+  if (active.length === 1 && room.started) {
+    addLog(room, `${active[0].name} ganó la partida.`);
+    room.started = false;
+  } else if (active.length === 0 && room.started) {
+    room.started = false;
+  }
 }
 
 // Validates that both sides of a trade can currently be fulfilled.
@@ -422,4 +478,5 @@ module.exports = {
   checkBankrupt,
   validateTrade,
   executeTrade,
+  handlePlayerElimination,
 };
